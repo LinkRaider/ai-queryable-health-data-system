@@ -24,6 +24,14 @@ START = datetime(2026, 1, 5, tzinfo=UTC)
 END = datetime(2026, 1, 7, tzinfo=UTC)
 
 
+class AvailablePlanner:
+    def available(self) -> bool:
+        return True
+
+    def plan(self, _question: str):
+        raise AssertionError("planner is not used by structured endpoint tests")
+
+
 class StructuredQueryApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -106,7 +114,9 @@ class StructuredQueryApiTests(unittest.TestCase):
             ("a" * 64, Jsonb({"fixture": True})),
         )
         cls.connection.commit()
-        cls.client = TestClient(create_app(TEST_DATABASE_URL))
+        cls.client = TestClient(
+            create_app(TEST_DATABASE_URL, planner=AvailablePlanner())
+        )
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -206,7 +216,8 @@ class StructuredQueryApiTests(unittest.TestCase):
     def test_database_unavailability_returns_503_without_connection_details(self) -> None:
         unavailable_client = TestClient(
             create_app(
-                "postgresql://postgres@127.0.0.1:1/health_data?connect_timeout=1"
+                "postgresql://postgres@127.0.0.1:1/health_data?connect_timeout=1",
+                planner=AvailablePlanner(),
             )
         )
         response = unavailable_client.post("/v1/query", json=self.request_payload())

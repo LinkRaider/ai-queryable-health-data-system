@@ -15,6 +15,9 @@ class Settings:
     generation: GenerationConfig
     batch_size: int
     batch_delay_seconds: float
+    ollama_url: str
+    ollama_model: str
+    ollama_timeout_seconds: float
 
 
 def load_settings() -> Settings:
@@ -35,5 +38,10 @@ def load_settings() -> Settings:
         batch_size=int(os.getenv("HEALTH_DATA_BATCH_SIZE", "1000")),
         batch_delay_seconds=float(
             os.getenv("HEALTH_DATA_BATCH_DELAY_SECONDS", "0")
+        ),
+        ollama_url=os.getenv("HEALTH_DATA_OLLAMA_URL", "http://ollama:11434"),
+        ollama_model=os.getenv("HEALTH_DATA_OLLAMA_MODEL", "qwen2.5:1.5b"),
+        ollama_timeout_seconds=float(
+            os.getenv("HEALTH_DATA_OLLAMA_TIMEOUT_SECONDS", "30")
         ),
     )

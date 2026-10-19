@@ -1,0 +1,48 @@
+[
+  {
+    "name": "daily resting average",
+    "category": "supported",
+    "question": "What was user-0001's average resting heart rate each day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?",
+    "plan": {
+      "operation": "daily_user_average",
+      "user_id": "user-0001",
+      "metric": "heart_rate",
+      "start": "2026-01-05T00:00:00Z",
+      "end": "2026-01-07T00:00:00Z"
+    }
+  },
+  {
+    "name": "activity comparison",
+    "category": "supported",
+    "question": "Compare user-0001's heart rate across activity states from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z.",
+    "plan": {
+      "operation": "activity_state_comparison",
+      "user_id": "user-0001",
+      "metric": "heart_rate",
+      "start": "2026-01-05T00:00:00Z",
+      "end": "2026-01-07T00:00:00Z"
+    }
+  },
+  {
+    "name": "population daily average",
+    "category": "supported",
+    "question": "What was the population average heart rate across all users from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?",
+    "plan": {
+      "operation": "population_daily_average",
+      "user_id": null,
+      "metric": "heart_rate",
+      "start": "2026-01-05T00:00:00Z",
+      "end": "2026-01-07T00:00:00Z"
+    }
+  },
+  {
+    "name": "ambiguous missing subject and range",
+    "category": "ambiguous",
+    "question": "What was the average heart rate last week?"
+  },
+  {
+    "name": "unsupported metric",
+    "category": "unsupported_metric",
+    "question": "What was user-0001's average step count from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+  }
+]
