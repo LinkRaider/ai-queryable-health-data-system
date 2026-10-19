@@ -1,0 +1,4 @@
+services:
+  bootstrap:
+    environment:
+      HEALTH_DATA_BATCH_DELAY_SECONDS: "0.10"

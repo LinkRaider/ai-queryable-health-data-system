@@ -14,6 +14,7 @@ class Settings:
     database_url: str
     generation: GenerationConfig
     batch_size: int
+    batch_delay_seconds: float
 
 
 def load_settings() -> Settings:
@@ -32,4 +33,7 @@ def load_settings() -> Settings:
             user_count=int(os.getenv("HEALTH_DATA_USER_COUNT", "50")),
         ),
         batch_size=int(os.getenv("HEALTH_DATA_BATCH_SIZE", "1000")),
+        batch_delay_seconds=float(
+            os.getenv("HEALTH_DATA_BATCH_DELAY_SECONDS", "0")
+        ),
     )
