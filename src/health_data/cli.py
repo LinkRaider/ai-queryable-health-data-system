@@ -53,14 +53,27 @@ def demo_queries() -> None:
             print(json.dumps(result.as_dict(), sort_keys=True))
 
 
+def serve_api() -> None:
+    import uvicorn
+
+    uvicorn.run(
+        "health_data.api:app",
+        host="0.0.0.0",
+        port=8000,
+        access_log=True,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("bootstrap", "demo-queries"))
+    parser.add_argument("command", choices=("api", "bootstrap", "demo-queries"))
     arguments = parser.parse_args()
     if arguments.command == "bootstrap":
         bootstrap()
-    else:
+    elif arguments.command == "demo-queries":
         demo_queries()
+    else:
+        serve_api()
 
 
 if __name__ == "__main__":
