@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable, Iterator, TypeVar
@@ -25,7 +26,12 @@ from health_data.generator import (
 )
 
 DEFAULT_BATCH_SIZE = 1_000
-SCHEMA_PATH = Path(__file__).resolve().parents[2] / "sql" / "schema.sql"
+SCHEMA_PATH = Path(
+    os.getenv(
+        "HEALTH_DATA_SCHEMA_PATH",
+        str(Path(__file__).resolve().parents[2] / "sql" / "schema.sql"),
+    )
+)
 T = TypeVar("T")
 
 
