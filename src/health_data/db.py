@@ -68,9 +68,17 @@ def _configuration(config: GenerationConfig, batch_size: int) -> dict[str, objec
     }
 
 
-def ingestion_run_key(config: GenerationConfig, batch_size: int = DEFAULT_BATCH_SIZE) -> str:
+def ingestion_run_key(config: GenerationConfig) -> str:
+    identity = {
+        "schema_version": SCHEMA_VERSION,
+        "generator_version": GENERATOR_VERSION,
+        "seed": config.seed,
+        "window_start": canonical_timestamp(config.window_start),
+        "window_end": canonical_timestamp(config.window_end),
+        "user_count": config.user_count,
+    }
     encoded = json.dumps(
-        _configuration(config, batch_size),
+        identity,
         sort_keys=True,
         separators=(",", ":"),
     ).encode()
@@ -177,7 +185,7 @@ def ingest(
         raise ValueError("batch_delay_seconds cannot be negative")
 
     run_configuration = _configuration(config, batch_size)
-    run_key = ingestion_run_key(config, batch_size)
+    run_key = ingestion_run_key(config)
     inserted_this_attempt = 0
     lock_acquired = False
 

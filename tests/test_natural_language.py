@@ -69,7 +69,7 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
         try:
             cls.connection = connect(TEST_DATABASE_URL)
         except psycopg.OperationalError as error:
-            raise unittest.SkipTest(f"test PostgreSQL unavailable: {error}") from error
+            raise RuntimeError(f"test PostgreSQL unavailable: {error}") from error
         apply_schema(cls.connection)
         cls.connection.execute(
             "TRUNCATE heart_rate_observations, ingestion_runs, users CASCADE"
@@ -206,10 +206,11 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
         self.assertEqual(0, planner.call_count)
 
     def test_invalid_model_output_with_sql_is_rejected(self) -> None:
-        case = SUPPORTED[0]
-        invalid_plan = {**case["plan"], "sql": "SELECT * FROM users"}
+        case = next(
+            case for case in CASES if case["category"] == "invalid_model_output"
+        )
         response = TestClient(
-            create_app(TEST_DATABASE_URL, planner=FixedPlanner(invalid_plan))
+            create_app(TEST_DATABASE_URL, planner=FixedPlanner(case["plan"]))
         ).post(
             "/v1/query/natural-language",
             json={"question": case["question"]},
@@ -228,6 +229,9 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
                     interpret_model_plan(case["question"], invalid_plan)
 
     def test_model_unavailability_returns_503(self) -> None:
+        case = next(
+            case for case in CASES if case["category"] == "model_unavailable"
+        )
         planner = FixedPlanner(
             error=ModelUnavailableError(
                 "the local interpretation model is unavailable"
@@ -238,7 +242,7 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
             create_app(TEST_DATABASE_URL, planner=planner)
         ).post(
             "/v1/query/natural-language",
-            json={"question": SUPPORTED[0]["question"]},
+            json={"question": case["question"]},
         )
         self.assertEqual(503, response.status_code)
         self.assertEqual("model_unavailable", response.json()["error"]["code"])

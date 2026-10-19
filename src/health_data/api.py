@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from datetime import datetime
+import re
 from typing import Annotated, Any, Literal
 
 import psycopg
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from psycopg import Connection
 
 from health_data.config import load_settings
@@ -31,6 +32,10 @@ from health_data.query import (
     execute_query,
 )
 
+OFFSET_TIMESTAMP_PATTERN = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
+)
+
 
 class StructuredQueryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -41,6 +46,13 @@ class StructuredQueryRequest(BaseModel):
     metric: Literal["heart_rate"] = "heart_rate"
     user_id: str | None = None
     row_limit: int = Field(default=MAX_RESPONSE_ROWS, ge=1, le=MAX_RESPONSE_ROWS)
+
+    @field_validator("start", "end", mode="before")
+    @classmethod
+    def require_offset_timestamp_string(cls, value: Any) -> Any:
+        if not isinstance(value, str) or OFFSET_TIMESTAMP_PATTERN.fullmatch(value) is None:
+            raise ValueError("timestamp must be an offset-aware RFC 3339 string")
+        return value
 
     def to_domain(self) -> StructuredQuery:
         return StructuredQuery(
@@ -67,6 +79,60 @@ class NaturalLanguageQueryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     question: str = Field(min_length=5, max_length=500)
+
+
+class DailyAverageRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    day: str
+    average_bpm: float
+    observation_count: int
+
+
+class ActivityComparisonRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    activity_state: Literal["sleep", "rest", "ordinary_activity", "workout"]
+    average_bpm: float
+    observation_count: int
+
+
+class PopulationAverageRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    day: str
+    average_bpm: float
+    observation_count: int
+    user_count: int
+
+
+class AnalyticalQueryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: QueryOperation
+    metric: Literal["heart_rate"]
+    start: datetime
+    end: datetime
+    rows: list[DailyAverageRow | ActivityComparisonRow | PopulationAverageRow]
+
+
+class InterpretedQueryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: QueryOperation
+    user_id: str | None
+    metric: Literal["heart_rate"]
+    start: datetime
+    end: datetime
+    row_limit: int
+
+
+class NaturalLanguageQueryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str
+    interpreted_query: InterpretedQueryResponse
+    result: AnalyticalQueryResponse
 
 
 def _error(
@@ -196,6 +262,7 @@ def create_app(
     @app.post(
         "/v1/query",
         tags=["analytics"],
+        response_model=AnalyticalQueryResponse,
         responses={
             413: {"model": ErrorResponse},
             422: {"model": ErrorResponse},
@@ -211,6 +278,7 @@ def create_app(
     @app.post(
         "/v1/query/natural-language",
         tags=["analytics"],
+        response_model=NaturalLanguageQueryResponse,
         responses={
             413: {"model": ErrorResponse},
             422: {"model": ErrorResponse},

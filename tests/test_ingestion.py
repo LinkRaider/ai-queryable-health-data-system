@@ -25,7 +25,7 @@ class IngestionRecoveryTests(unittest.TestCase):
         try:
             cls.connection = connect(TEST_DATABASE_URL)
         except psycopg.OperationalError as error:
-            raise unittest.SkipTest(f"test PostgreSQL unavailable: {error}") from error
+            raise RuntimeError(f"test PostgreSQL unavailable: {error}") from error
         apply_schema(cls.connection)
 
     @classmethod
@@ -55,7 +55,7 @@ class IngestionRecoveryTests(unittest.TestCase):
 
         interrupted = self.connection.execute(
             "SELECT * FROM ingestion_runs WHERE run_key = %s",
-            (ingestion_run_key(config, 100),),
+            (ingestion_run_key(config),),
         ).fetchone()
         persisted_count = self.connection.execute(
             "SELECT count(*) AS count FROM heart_rate_observations"
@@ -85,6 +85,75 @@ class IngestionRecoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "batch_delay"):
             ingest(self.connection, config, batch_delay_seconds=-0.1)
 
+    def test_changed_batch_size_cannot_fork_or_resume_a_partial_run(self) -> None:
+        config = GenerationConfig(days=1, user_count=1)
+
+        def interrupt(_batch_number, _progress) -> None:
+            raise RuntimeError("stop after first committed batch")
+
+        with self.assertRaisesRegex(RuntimeError, "first committed batch"):
+            ingest(
+                self.connection,
+                config,
+                batch_size=100,
+                after_batch_commit=interrupt,
+            )
+        with self.assertRaisesRegex(RuntimeError, "configuration mismatch"):
+            ingest(self.connection, config, batch_size=200)
+
+        runs = self.connection.execute(
+            "SELECT count(*) AS count FROM ingestion_runs"
+        ).fetchone()["count"]
+        checkpoint = self.connection.execute(
+            "SELECT next_batch_index FROM ingestion_runs"
+        ).fetchone()["next_batch_index"]
+        self.connection.commit()
+        self.assertEqual(1, runs)
+        self.assertEqual(1, checkpoint)
+        self.assertEqual(
+            ingestion_run_key(config),
+            ingestion_run_key(config),
+        )
+        self.assertNotEqual(
+            ingestion_run_key(config),
+            ingestion_run_key(
+                GenerationConfig(seed=config.seed + 1, days=1, user_count=1)
+            ),
+        )
+
+    def test_database_rejects_complete_run_with_missing_events(self) -> None:
+        with self.assertRaises(psycopg.errors.CheckViolation):
+            self.connection.execute(
+                """
+                INSERT INTO ingestion_runs (
+                    run_key,
+                    schema_version,
+                    generator_version,
+                    configuration,
+                    status,
+                    expected_event_count,
+                    total_batches,
+                    next_batch_index,
+                    inserted_event_count,
+                    completed_at
+                )
+                VALUES (
+                    %s,
+                    'health.heart_rate.observation.v1',
+                    'test',
+                    '{}'::jsonb,
+                    'complete',
+                    1,
+                    1,
+                    1,
+                    0,
+                    now()
+                )
+                """,
+                ("c" * 64,),
+            )
+        self.connection.rollback()
+
 
 class PostgreSQLIngestionTests(unittest.TestCase):
     @classmethod
@@ -92,7 +161,7 @@ class PostgreSQLIngestionTests(unittest.TestCase):
         try:
             cls.connection = connect(TEST_DATABASE_URL)
         except psycopg.OperationalError as error:
-            raise unittest.SkipTest(f"test PostgreSQL unavailable: {error}") from error
+            raise RuntimeError(f"test PostgreSQL unavailable: {error}") from error
         apply_schema(cls.connection)
         cls.connection.execute(
             "TRUNCATE heart_rate_observations, ingestion_runs, users CASCADE"
@@ -139,8 +208,8 @@ class PostgreSQLIngestionTests(unittest.TestCase):
 
     def test_run_key_is_stable_and_configuration_is_durable(self) -> None:
         self.assertEqual(
-            ingestion_run_key(self.config, 500),
-            ingestion_run_key(self.config, 500),
+            ingestion_run_key(self.config),
+            ingestion_run_key(self.config),
         )
         run = self.connection.execute(
             "SELECT * FROM ingestion_runs WHERE run_key = %s",

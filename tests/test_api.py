@@ -38,7 +38,7 @@ class StructuredQueryApiTests(unittest.TestCase):
         try:
             cls.connection = connect(TEST_DATABASE_URL)
         except psycopg.OperationalError as error:
-            raise unittest.SkipTest(f"test PostgreSQL unavailable: {error}") from error
+            raise RuntimeError(f"test PostgreSQL unavailable: {error}") from error
         apply_schema(cls.connection)
         cls.connection.execute(
             "TRUNCATE heart_rate_observations, ingestion_runs, users CASCADE"
@@ -173,6 +173,7 @@ class StructuredQueryApiTests(unittest.TestCase):
     def test_invalid_requests_return_structured_422_errors(self) -> None:
         cases = (
             self.request_payload(start="2026-01-05T00:00:00"),
+            self.request_payload(start=1767571200),
             self.request_payload(metric="steps"),
             self.request_payload(operation="raw_sql"),
             self.request_payload(sql="SELECT * FROM heart_rate_observations"),
@@ -212,6 +213,20 @@ class StructuredQueryApiTests(unittest.TestCase):
             set(properties),
         )
         self.assertNotIn("sql", properties)
+        structured_response = schema["paths"]["/v1/query"]["post"]["responses"]["200"][
+            "content"
+        ]["application/json"]["schema"]
+        natural_response = schema["paths"]["/v1/query/natural-language"]["post"][
+            "responses"
+        ]["200"]["content"]["application/json"]["schema"]
+        self.assertEqual(
+            "#/components/schemas/AnalyticalQueryResponse",
+            structured_response["$ref"],
+        )
+        self.assertEqual(
+            "#/components/schemas/NaturalLanguageQueryResponse",
+            natural_response["$ref"],
+        )
 
     def test_database_unavailability_returns_503_without_connection_details(self) -> None:
         unavailable_client = TestClient(

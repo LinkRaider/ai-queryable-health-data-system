@@ -34,8 +34,22 @@ def main() -> None:
     args = parser.parse_args()
     cases = json.loads(CASES_PATH.read_text(encoding="utf-8"))
     failures = 0
+    isolated_cases = 0
 
     for case in cases:
+        if case["category"] in {"invalid_model_output", "model_unavailable"}:
+            isolated_cases += 1
+            print(
+                json.dumps(
+                    {
+                        "name": case["name"],
+                        "category": case["category"],
+                        "live_status": "covered_by_isolated_test",
+                    },
+                    sort_keys=True,
+                )
+            )
+            continue
         status, payload = post_question(args.base_url, case["question"])
         if case["category"] == "supported":
             passed = (
@@ -74,8 +88,10 @@ def main() -> None:
         json.dumps(
             {
                 "cases": len(cases),
+                "isolated_cases": isolated_cases,
+                "live_cases": len(cases) - isolated_cases,
                 "failures": failures,
-                "passed": len(cases) - failures,
+                "live_passed": len(cases) - isolated_cases - failures,
             },
             sort_keys=True,
         )
