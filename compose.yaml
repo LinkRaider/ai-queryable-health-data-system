@@ -4,6 +4,7 @@ x-application: &application
   image: health-data-system:local
   environment:
     HEALTH_DATA_DATABASE_URL: postgresql://health_data:health_data@postgres:5432/health_data
+    HEALTH_DATA_BATCH_DELAY_SECONDS: ${HEALTH_DATA_BATCH_DELAY_SECONDS:-0}
 
 services:
   postgres:

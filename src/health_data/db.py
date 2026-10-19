@@ -6,9 +6,10 @@ import hashlib
 import json
 import math
 import os
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable, Iterator, TypeVar
+from typing import Callable, Iterable, Iterator, TypeVar
 
 import psycopg
 from psycopg import Connection
@@ -165,11 +166,15 @@ def ingest(
     config: GenerationConfig = GenerationConfig(),
     *,
     batch_size: int = DEFAULT_BATCH_SIZE,
+    batch_delay_seconds: float = 0,
+    after_batch_commit: Callable[[int, IngestionResult], None] | None = None,
 ) -> IngestionResult:
     """Ingest a deterministic run, resuming after its last committed batch."""
 
     if batch_size < 1:
         raise ValueError("batch_size must be positive")
+    if batch_delay_seconds < 0:
+        raise ValueError("batch_delay_seconds cannot be negative")
 
     run_configuration = _configuration(config, batch_size)
     run_key = ingestion_run_key(config, batch_size)
@@ -263,6 +268,11 @@ def ingest(
                     )
             inserted_this_attempt += inserted
             run = updated
+            progress = _result_from_row(run, inserted_this_attempt)
+            if after_batch_commit is not None:
+                after_batch_commit(batch_index + 1, progress)
+            if batch_delay_seconds:
+                time.sleep(batch_delay_seconds)
 
         assert run is not None
         if run["status"] != "complete":

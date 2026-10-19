@@ -19,6 +19,7 @@ def bootstrap() -> None:
             connection,
             settings.generation,
             batch_size=settings.batch_size,
+            batch_delay_seconds=settings.batch_delay_seconds,
         )
     print(json.dumps({"event": "bootstrap_complete", **asdict(result)}, sort_keys=True))
 

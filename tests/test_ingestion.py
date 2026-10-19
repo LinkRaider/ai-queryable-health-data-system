@@ -11,12 +11,79 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import psycopg
 
 from health_data.db import apply_schema, connect, ingest, ingestion_run_key
-from health_data.generator import GenerationConfig
+from health_data.generator import GenerationConfig, generate_events
 
 TEST_DATABASE_URL = os.getenv(
     "HEALTH_DATA_TEST_DATABASE_URL",
     "postgresql://postgres@127.0.0.1:55432/health_data",
 )
+
+
+class IngestionRecoveryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        try:
+            cls.connection = connect(TEST_DATABASE_URL)
+        except psycopg.OperationalError as error:
+            raise unittest.SkipTest(f"test PostgreSQL unavailable: {error}") from error
+        apply_schema(cls.connection)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.connection.close()
+
+    def setUp(self) -> None:
+        self.connection.execute(
+            "TRUNCATE heart_rate_observations, ingestion_runs, users CASCADE"
+        )
+        self.connection.commit()
+
+    def test_failure_after_committed_batch_resumes_without_duplicates(self) -> None:
+        config = GenerationConfig(days=1, user_count=1)
+
+        def interrupt(batch_number, _progress) -> None:
+            if batch_number == 2:
+                raise RuntimeError("simulated interruption after committed batch 2")
+
+        with self.assertRaisesRegex(RuntimeError, "committed batch 2"):
+            ingest(
+                self.connection,
+                config,
+                batch_size=100,
+                after_batch_commit=interrupt,
+            )
+
+        interrupted = self.connection.execute(
+            "SELECT * FROM ingestion_runs WHERE run_key = %s",
+            (ingestion_run_key(config, 100),),
+        ).fetchone()
+        persisted_count = self.connection.execute(
+            "SELECT count(*) AS count FROM heart_rate_observations"
+        ).fetchone()["count"]
+        self.connection.commit()
+        self.assertEqual("in_progress", interrupted["status"])
+        self.assertEqual(2, interrupted["next_batch_index"])
+        self.assertEqual(200, persisted_count)
+
+        resumed = ingest(self.connection, config, batch_size=100)
+        database_ids = [
+            row["event_id"]
+            for row in self.connection.execute(
+                "SELECT event_id FROM heart_rate_observations ORDER BY user_id, observed_at"
+            ).fetchall()
+        ]
+        self.connection.commit()
+        expected_ids = [event.event_id for event in generate_events(config)]
+        self.assertEqual("complete", resumed.status)
+        self.assertEqual(expected_ids, database_ids)
+        self.assertEqual(len(expected_ids) - persisted_count, resumed.inserted_this_attempt)
+
+    def test_invalid_batch_controls_are_rejected(self) -> None:
+        config = GenerationConfig(days=1, user_count=1)
+        with self.assertRaisesRegex(ValueError, "batch_size"):
+            ingest(self.connection, config, batch_size=0)
+        with self.assertRaisesRegex(ValueError, "batch_delay"):
+            ingest(self.connection, config, batch_delay_seconds=-0.1)
 
 
 class PostgreSQLIngestionTests(unittest.TestCase):
