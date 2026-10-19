@@ -1,0 +1,43 @@
+name: ai-health-data-solution
+
+x-application: &application
+  image: health-data-system:local
+  environment:
+    HEALTH_DATA_DATABASE_URL: postgresql://health_data:health_data@postgres:5432/health_data
+
+services:
+  postgres:
+    image: postgres:16.6-alpine
+    environment:
+      POSTGRES_DB: health_data
+      POSTGRES_USER: health_data
+      POSTGRES_PASSWORD: health_data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U health_data -d health_data"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  bootstrap:
+    <<: *application
+    build:
+      context: .
+    command: ["bootstrap"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  query-demo:
+    <<: *application
+    pull_policy: never
+    command: ["demo-queries"]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    restart: "no"
+
+volumes:
+  postgres-data:
