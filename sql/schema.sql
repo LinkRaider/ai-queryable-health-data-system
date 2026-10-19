@@ -61,3 +61,16 @@ CREATE TABLE IF NOT EXISTS ingestion_runs (
         )
     )
 );
+
+DO $$
+BEGIN
+    ALTER TABLE ingestion_runs
+        ADD CONSTRAINT ingestion_runs_complete_count_check
+        CHECK (
+            status <> 'complete'
+            OR inserted_event_count = expected_event_count
+        );
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END
+$$;

@@ -44,5 +44,23 @@
     "name": "unsupported metric",
     "category": "unsupported_metric",
     "question": "What was user-0001's average step count from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+  },
+  {
+    "name": "invalid model output",
+    "category": "invalid_model_output",
+    "question": "What was user-0001's average resting heart rate each day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?",
+    "plan": {
+      "operation": "daily_user_average",
+      "user_id": "user-0001",
+      "metric": "heart_rate",
+      "start": "2026-01-05T00:00:00Z",
+      "end": "2026-01-07T00:00:00Z",
+      "sql": "SELECT * FROM heart_rate_observations"
+    }
+  },
+  {
+    "name": "model unavailable",
+    "category": "model_unavailable",
+    "question": "What was user-0001's average resting heart rate each day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
   }
 ]

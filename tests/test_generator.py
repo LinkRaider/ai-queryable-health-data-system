@@ -26,8 +26,9 @@ def event_digest(events: list) -> str:
     for event in events:
         digest.update(
             (
-                f"{event.event_id}|{event.user_id}|"
-                f"{canonical_timestamp(event.observed_at)}|{event.value}|"
+                f"{event.schema_version}|{event.event_id}|{event.user_id}|"
+                f"{event.device_id}|{canonical_timestamp(event.observed_at)}|"
+                f"{event.metric}|{event.value}|{event.unit}|"
                 f"{event.activity_state.value}\n"
             ).encode()
         )

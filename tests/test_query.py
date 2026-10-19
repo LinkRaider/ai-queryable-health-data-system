@@ -38,7 +38,7 @@ class AnalyticalQueryTests(unittest.TestCase):
         try:
             cls.connection = connect(TEST_DATABASE_URL)
         except psycopg.OperationalError as error:
-            raise unittest.SkipTest(f"test PostgreSQL unavailable: {error}") from error
+            raise RuntimeError(f"test PostgreSQL unavailable: {error}") from error
         apply_schema(cls.connection)
         cls.connection.execute(
             "TRUNCATE heart_rate_observations, ingestion_runs, users CASCADE"
@@ -56,6 +56,7 @@ class AnalyticalQueryTests(unittest.TestCase):
             ],
         )
         observations = [
+            ("user-0001", "device-0001", START, 40.0, "rest"),
             ("user-0001", "device-0001", START + timedelta(hours=1), 60.0, "rest"),
             ("user-0001", "device-0001", START + timedelta(hours=2), 80.0, "rest"),
             (
@@ -100,6 +101,7 @@ class AnalyticalQueryTests(unittest.TestCase):
                 110.0,
                 "ordinary_activity",
             ),
+            ("user-0001", "device-0001", END, 200.0, "rest"),
         ]
         cls.connection.cursor().executemany(
             """
@@ -142,8 +144,8 @@ class AnalyticalQueryTests(unittest.TestCase):
             (
                 {
                     "day": "2026-01-05",
-                    "average_bpm": 70.0,
-                    "observation_count": 2,
+                    "average_bpm": 60.0,
+                    "observation_count": 3,
                 },
                 {
                     "day": "2026-01-06",
@@ -168,8 +170,8 @@ class AnalyticalQueryTests(unittest.TestCase):
             (
                 {
                     "activity_state": "rest",
-                    "average_bpm": 70.0,
-                    "observation_count": 3,
+                    "average_bpm": 62.5,
+                    "observation_count": 4,
                 },
                 {
                     "activity_state": "ordinary_activity",
@@ -198,8 +200,8 @@ class AnalyticalQueryTests(unittest.TestCase):
             (
                 {
                     "day": "2026-01-05",
-                    "average_bpm": 66.0,
-                    "observation_count": 5,
+                    "average_bpm": 61.7,
+                    "observation_count": 6,
                     "user_count": 2,
                 },
                 {
@@ -211,6 +213,102 @@ class AnalyticalQueryTests(unittest.TestCase):
             ),
             result.rows,
         )
+
+    def test_range_is_start_inclusive_and_end_exclusive(self) -> None:
+        result = execute_query(
+            self.connection,
+            StructuredQuery(
+                operation=QueryOperation.DAILY_USER_AVERAGE,
+                user_id="user-0001",
+                start=START,
+                end=START + timedelta(hours=1),
+            ),
+        )
+        self.assertEqual(
+            (
+                {
+                    "day": "2026-01-05",
+                    "average_bpm": 40.0,
+                    "observation_count": 1,
+                },
+            ),
+            result.rows,
+        )
+
+    def test_user_day_grouping_uses_profile_timezone(self) -> None:
+        self.connection.execute(
+            """
+            INSERT INTO users (
+                user_id, device_id, timezone_name, resting_baseline_bpm, profile
+            )
+            VALUES ('user-0003', 'device-0003', 'America/Los_Angeles', 60.0, %s)
+            """,
+            (Jsonb({}),),
+        )
+        self.connection.cursor().executemany(
+            """
+            INSERT INTO heart_rate_observations (
+                event_id,
+                schema_version,
+                user_id,
+                device_id,
+                observed_at,
+                metric,
+                value,
+                unit,
+                activity_state
+            )
+            VALUES (
+                %s,
+                'health.heart_rate.observation.v1',
+                'user-0003',
+                'device-0003',
+                %s,
+                'heart_rate',
+                %s,
+                'bpm',
+                'rest'
+            )
+            """,
+            [
+                (uuid.UUID(int=1001), START + timedelta(hours=7, minutes=30), 50.0),
+                (uuid.UUID(int=1002), START + timedelta(hours=8, minutes=30), 70.0),
+            ],
+        )
+        self.connection.commit()
+        self.addCleanup(self._delete_user_three_fixture)
+
+        result = execute_query(
+            self.connection,
+            StructuredQuery(
+                operation=QueryOperation.DAILY_USER_AVERAGE,
+                user_id="user-0003",
+                start=START,
+                end=START + timedelta(days=1),
+            ),
+        )
+        self.assertEqual(
+            (
+                {
+                    "day": "2026-01-04",
+                    "average_bpm": 50.0,
+                    "observation_count": 1,
+                },
+                {
+                    "day": "2026-01-05",
+                    "average_bpm": 70.0,
+                    "observation_count": 1,
+                },
+            ),
+            result.rows,
+        )
+
+    def _delete_user_three_fixture(self) -> None:
+        self.connection.execute(
+            "DELETE FROM heart_rate_observations WHERE user_id = 'user-0003'"
+        )
+        self.connection.execute("DELETE FROM users WHERE user_id = 'user-0003'")
+        self.connection.commit()
 
     def test_empty_result_is_an_empty_row_list(self) -> None:
         result = execute_query(
