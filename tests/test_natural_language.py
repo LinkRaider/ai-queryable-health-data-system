@@ -231,7 +231,9 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
     def test_last_week_uses_request_time_and_returns_empty_when_snapshot_has_no_data(
         self,
     ) -> None:
-        question = "What was user-0001's average resting heart rate last week?"
+        question = (
+            "What was user-0001's average resting heart rate each day last week?"
+        )
         reference_time = datetime(2026, 10, 20, 13, 0, tzinfo=UTC)
         planner = FixedPlanner(
             output={
@@ -268,6 +270,102 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
             "2026-10-19T00:00:00Z",
             payload["temporal_interpretation"]["end"],
         )
+
+    def test_unsupported_intents_are_rejected_before_model_call(self) -> None:
+        unsupported_cases = [
+            case
+            for case in CASES
+            if case["category"] in {
+                "unsupported_operation",
+                "unsupported_question",
+            }
+        ]
+        for case in unsupported_cases:
+            with self.subTest(case=case["name"]):
+                planner = FixedPlanner(output={})
+                response = TestClient(
+                    create_app(TEST_DATABASE_URL, planner=planner)
+                ).post(
+                    "/v1/query/natural-language",
+                    json={"question": case["question"]},
+                )
+                self.assertEqual(422, response.status_code)
+                self.assertEqual(
+                    case["category"],
+                    response.json()["error"]["code"],
+                )
+                self.assertEqual(0, planner.call_count)
+
+    def test_fractional_seconds_are_accepted_in_explicit_range(self) -> None:
+        question = (
+            "What was user-0001's average resting heart rate each day from "
+            "2026-01-05T00:00:00.500Z to 2026-01-06T00:00:00.500Z?"
+        )
+        planner = FixedPlanner(
+            output={
+                "operation": "daily_user_average",
+                "user_id": "user-0001",
+                "metric": "heart_rate",
+                "start": "2026-01-05T00:00:00.500Z",
+                "end": "2026-01-06T00:00:00.500Z",
+            }
+        )
+        response = TestClient(
+            create_app(TEST_DATABASE_URL, planner=planner)
+        ).post(
+            "/v1/query/natural-language",
+            json={"question": question},
+        )
+
+        self.assertEqual(200, response.status_code, response.text)
+        self.assertEqual(1, planner.call_count)
+        self.assertEqual(
+            "2026-01-05T00:00:00.500000Z",
+            response.json()["temporal_interpretation"]["start"],
+        )
+
+    def test_conflicting_relative_and_explicit_dates_are_rejected(self) -> None:
+        planner = FixedPlanner(output={})
+        response = TestClient(
+            create_app(TEST_DATABASE_URL, planner=planner)
+        ).post(
+            "/v1/query/natural-language",
+            json={
+                "question": (
+                    "What was user-0001's average resting heart rate each day today "
+                    "from 2026-01-05T00:00:00Z to 2026-01-06T00:00:00Z?"
+                )
+            },
+        )
+
+        self.assertEqual(422, response.status_code)
+        self.assertEqual("ambiguous_question", response.json()["error"]["code"])
+        self.assertEqual(0, planner.call_count)
+
+    def test_daily_average_requires_explicit_daily_grouping(self) -> None:
+        question = (
+            "What was user-0001's average resting heart rate from "
+            "2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+        )
+        planner = FixedPlanner(
+            output={
+                "operation": "daily_user_average",
+                "user_id": "user-0001",
+                "metric": "heart_rate",
+                "start": "2026-01-05T00:00:00Z",
+                "end": "2026-01-07T00:00:00Z",
+            }
+        )
+        response = TestClient(
+            create_app(TEST_DATABASE_URL, planner=planner)
+        ).post(
+            "/v1/query/natural-language",
+            json={"question": question},
+        )
+
+        self.assertEqual(422, response.status_code)
+        self.assertEqual("unsupported_operation", response.json()["error"]["code"])
+        self.assertEqual(1, planner.call_count)
 
     def test_ambiguous_question_is_rejected_before_model_call(self) -> None:
         case = next(case for case in CASES if case["category"] == "ambiguous")

@@ -14,14 +14,14 @@
   {
     "name": "daily resting average for the real previous week",
     "category": "supported_relative",
-    "question": "What was user-0001's average resting heart rate last week?",
+    "question": "What was user-0001's average resting heart rate each day last week?",
     "expected_operation": "daily_user_average",
     "expected_user_id": "user-0001"
   },
   {
     "name": "activity comparison",
     "category": "supported",
-    "question": "Compare user-0001's heart rate across activity states from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z.",
+    "question": "Compare user-0001's average heart rate across activity states from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z.",
     "plan": {
       "operation": "activity_state_comparison",
       "user_id": "user-0001",
@@ -51,6 +51,31 @@
     "name": "unsupported metric",
     "category": "unsupported_metric",
     "question": "What was user-0001's average step count from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+  },
+  {
+    "name": "unsupported maximum",
+    "category": "unsupported_operation",
+    "question": "What was user-0001's maximum resting heart rate each day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+  },
+  {
+    "name": "unsupported minimum",
+    "category": "unsupported_operation",
+    "question": "What was user-0001's minimum heart rate across activity states from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+  },
+  {
+    "name": "unsupported median",
+    "category": "unsupported_operation",
+    "question": "What was the population median heart rate from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+  },
+  {
+    "name": "unsupported count-only question",
+    "category": "unsupported_operation",
+    "question": "How many heart rate observations did user-0001 have from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+  },
+  {
+    "name": "unsupported medical advice",
+    "category": "unsupported_question",
+    "question": "Is user-0001's heart rate healthy from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
   },
   {
     "name": "invalid model output",

@@ -117,6 +117,8 @@ def main() -> None:
             expected_code = {
                 "ambiguous": "ambiguous_question",
                 "unsupported_metric": "unsupported_metric",
+                "unsupported_operation": "unsupported_operation",
+                "unsupported_question": "unsupported_question",
             }[case["category"]]
             passed = (
                 status == 422
