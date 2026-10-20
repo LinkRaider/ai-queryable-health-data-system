@@ -57,7 +57,7 @@ natural_language_response="$(
     --request POST \
     --header 'Content-Type: application/json' \
     --data '{
-      "question": "What was user-0001'\''s average resting heart rate each day from 2026-01-05T00:00:00Z to 2026-01-12T00:00:00Z?"
+      "question": "What was user-0001'\''s average resting heart rate last week?"
     }' \
     http://127.0.0.1:8000/v1/query/natural-language
 )"

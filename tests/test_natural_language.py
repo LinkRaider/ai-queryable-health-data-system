@@ -43,7 +43,10 @@ class EvaluationPlanner:
 
     def plan(self, question: str):
         self.call_count += 1
-        return self.plans[question]
+        for original_question, plan in self.plans.items():
+            if question.startswith(original_question):
+                return plan
+        raise KeyError(question)
 
 
 class FixedPlanner:
@@ -175,6 +178,20 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
                 self.assertEqual(case["plan"]["user_id"], payload["interpreted_query"]["user_id"])
                 self.assertEqual("heart_rate", payload["interpreted_query"]["metric"])
                 self.assertTrue(payload["result"]["rows"])
+                temporal = payload["temporal_interpretation"]
+                self.assertEqual(case["plan"]["start"], temporal["start"])
+                self.assertEqual(case["plan"]["end"], temporal["end"])
+                if "last week" in case["question"]:
+                    self.assertEqual("previous_iso_week", temporal["kind"])
+                    self.assertEqual("UTC", temporal["timezone"])
+                    self.assertEqual(
+                        "2026-01-12T00:00:00Z",
+                        temporal["reference_time"],
+                    )
+                else:
+                    self.assertEqual("explicit_range", temporal["kind"])
+                    self.assertIsNone(temporal["timezone"])
+                    self.assertIsNone(temporal["reference_time"])
         self.assertEqual(len(SUPPORTED), planner.call_count)
 
     def test_ambiguous_question_is_rejected_before_model_call(self) -> None:
@@ -188,6 +205,23 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
         )
         self.assertEqual(422, response.status_code)
         self.assertEqual("ambiguous_question", response.json()["error"]["code"])
+        self.assertEqual(0, planner.call_count)
+
+    def test_first_person_last_week_requires_explicit_user_identity(self) -> None:
+        planner = FixedPlanner(output={})
+        response = TestClient(
+            create_app(TEST_DATABASE_URL, planner=planner)
+        ).post(
+            "/v1/query/natural-language",
+            json={
+                "question": (
+                    "What was my average resting heart rate last week?"
+                )
+            },
+        )
+        self.assertEqual(422, response.status_code)
+        self.assertEqual("ambiguous_question", response.json()["error"]["code"])
+        self.assertIn("explicit user ID", response.json()["error"]["detail"])
         self.assertEqual(0, planner.call_count)
 
     def test_unsupported_metric_is_rejected_before_model_call(self) -> None:

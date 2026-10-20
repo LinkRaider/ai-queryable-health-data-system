@@ -137,9 +137,14 @@ with `rows: []`, not an invented zero.
 - Neither endpoint accepts SQL text.
 
 For natural language, the response includes the validated interpreted request
-beside the same result shape used by the structured endpoint. Unsupported
-metrics, missing users or dates, conflicting interpretations, invalid JSON,
-extra fields, and out-of-bounds plans are rejected. The application never
+and temporal interpretation beside the same result shape used by the
+structured endpoint. Questions may contain either two explicit offset-aware
+timestamps or `last week`. The latter is resolved by application code as the
+previous ISO week using reference `2026-01-12T00:00:00Z` and time zone `UTC`;
+the model receives the resolved bounds and cannot choose them. Unsupported
+metrics, missing users, unsupported or conflicting date expressions, invalid
+JSON, extra fields, and out-of-bounds plans are rejected. First-person identity
+is rejected because authentication is not implemented. The application never
 substitutes another metric, user, range, or operation.
 
 ## Durable ingestion and recovery
@@ -195,7 +200,8 @@ and values with the uninterrupted baseline.
 - Structured requests return documented JSON and execute only validated,
   parameterised queries.
 - Natural-language requests invoke the Compose-managed local model, validate
-  its structured plan through the same path, and return that interpretation.
+  its structured plan through the same path, and return that interpretation,
+  including application-resolved relative-date context.
 - An explicit evaluation set covers all three supported question shapes,
   ambiguity, unsupported metrics, invalid model output, and model
   unavailability.
