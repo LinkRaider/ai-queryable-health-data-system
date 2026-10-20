@@ -85,7 +85,7 @@ class DailyAverageRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     day: str
-    average_bpm: float
+    mean_recorded_bpm: float
     observation_count: int
 
 
@@ -93,7 +93,7 @@ class ActivityComparisonRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     activity_state: Literal["sleep", "rest", "ordinary_activity", "workout"]
-    average_bpm: float
+    mean_recorded_bpm: float
     observation_count: int
 
 
@@ -101,7 +101,7 @@ class PopulationAverageRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     day: str
-    average_bpm: float
+    mean_recorded_bpm: float
     observation_count: int
     user_count: int
 
@@ -113,6 +113,7 @@ class AnalyticalQueryResponse(BaseModel):
     metric: Literal["heart_rate"]
     start: datetime
     end: datetime
+    aggregation_basis: Literal["recorded_observations"]
     rows: list[DailyAverageRow | ActivityComparisonRow | PopulationAverageRow]
 
 
@@ -181,7 +182,8 @@ def create_app(
         title="AI-Queryable Health Data System",
         version="1.0.0",
         description=(
-            "Bounded synthetic heart-rate analytics. "
+            "Bounded analytics over a fixed synthetic heart-rate snapshot. "
+            "Reported means weight each recorded observation equally. "
             "No endpoint accepts arbitrary SQL."
         ),
     )
@@ -191,9 +193,7 @@ def create_app(
         settings.ollama_model,
         settings.ollama_timeout_seconds,
     )
-    app.state.query_reference_time = (
-        query_reference_time or settings.query_reference_time
-    )
+    app.state.query_reference_time = query_reference_time
     app.state.relative_date_timezone = (
         relative_date_timezone or settings.relative_date_timezone
     )

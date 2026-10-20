@@ -57,7 +57,7 @@ natural_language_response="$(
     --request POST \
     --header 'Content-Type: application/json' \
     --data '{
-      "question": "What was user-0001'\''s average resting heart rate last week?"
+      "question": "What was user-0001'\''s average resting heart rate each day from 2026-01-05T00:00:00Z to 2026-01-12T00:00:00Z?"
     }' \
     http://127.0.0.1:8000/v1/query/natural-language
 )"
@@ -67,7 +67,7 @@ rejected_status="$(
     --write-out '%{http_code}' \
     --request POST \
     --header 'Content-Type: application/json' \
-    --data '{"question": "What was the average heart rate last week?"}' \
+    --data '{"question": "What was the average heart rate from 2026-01-05T00:00:00Z to 2026-01-12T00:00:00Z?"}' \
     http://127.0.0.1:8000/v1/query/natural-language
 )"
 if [[ "$rejected_status" != "422" ]]; then

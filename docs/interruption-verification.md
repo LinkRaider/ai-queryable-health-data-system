@@ -16,26 +16,32 @@ known durable checkpoint.
 
 - Signal sent to the running bootstrap container: `SIGKILL`
 - Durable run status immediately after termination: `in_progress`
-- Durable `next_batch_index`: `5` of `272`
-- Rows committed at interruption: `5,000`
-- Durable `inserted_event_count`: `5,000`
+- Durable `next_batch_index`: `6` of `272`
+- Rows committed at interruption: `6,000`
+- Durable `inserted_event_count`: `6,000`
 
 The persisted row count and checkpoint-aligned inserted count were equal. The
-termination happened during the post-commit delay after batch 5, not inside an
+termination happened during the post-commit delay after batch 6, not inside an
 uncommitted transaction.
+
+This experiment establishes recovery from a durable checkpoint and final
+parity with an uninterrupted load. It does not establish, by forced
+interruption, rollback behavior inside an open transaction. That behavior
+follows from PostgreSQL transaction atomicity and the code placing event
+inserts and checkpoint advancement in the same transaction.
 
 ## Observed restart
 
 The bootstrap container was force-recreated without the artificial delay. It
-read checkpoint 5, regenerated the deterministic sequence, skipped the first
-five batches, and reported:
+read checkpoint 6, regenerated the deterministic sequence, skipped the first
+six batches, and reported:
 
 ```json
 {
   "event": "bootstrap_complete",
   "expected_event_count": 271620,
   "inserted_event_count": 271620,
-  "inserted_this_attempt": 266620,
+  "inserted_this_attempt": 265620,
   "next_batch_index": 272,
   "run_key": "a2ee71c85a4c158a7dc60c9093573e3600f5aea416206029463cf9eb0d7e878a",
   "status": "complete",
@@ -43,7 +49,7 @@ five batches, and reported:
 }
 ```
 
-`266,620` new rows plus the `5,000` rows committed before termination equals
+`265,620` new rows plus the `6,000` rows committed before termination equals
 the expected `271,620`.
 
 ## Final parity
@@ -57,8 +63,9 @@ recovered:     271620|2791d4a9a5996490ff6191256d36ca5a
 comparison:    identical
 ```
 
-This is direct container/PostgreSQL evidence for this run. The fast isolated
-test `test_failure_after_committed_batch_resumes_without_duplicates` separately
-raises an exception after batch 2 commits, checks the two-batch checkpoint and
-200 persisted rows, resumes, and compares all final event IDs with generator
-output.
+This is direct container/PostgreSQL evidence for this post-commit recovery run.
+The fast isolated test
+`test_failure_after_committed_batch_resumes_without_duplicates` also raises an
+exception after batch 2 commits, checks the two-batch checkpoint and 200
+persisted rows, resumes, and compares all final event IDs with generator
+output. Neither test claims to interrupt an open transaction.

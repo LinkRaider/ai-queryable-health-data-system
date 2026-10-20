@@ -5,7 +5,7 @@ Verification environment:
 - Host architecture: Apple/ARM64
 - Docker Engine: `29.1.2`, Linux/ARM64
 - Docker Compose: `2.40.3-desktop.1`
-- Verification date: 2026-10-19
+- Verification date: 2026-10-20
 
 Observed facts are separated below from isolated-test evidence and checks that
 were not performed.
@@ -25,7 +25,7 @@ both query routes, submitted a rejected question, and replayed bootstrap.
 
 Observed:
 
-- Time from starting Compose until the API health check passed: **99 seconds**
+- Time from starting Compose until the API health check passed: **236 seconds**
 - Generated and stored observations: **271,620**
 - Users: **50**
 - History: `2026-01-05T00:00:00Z` through `2026-01-12T00:00:00Z`
@@ -36,13 +36,14 @@ Observed:
 - Bootstrap: exited 0 after 272 committed batches
 - FastAPI: healthy on `127.0.0.1:8000`
 
-The 99-second measurement used empty persistent volumes but retained Docker's
+The 236-second measurement used empty persistent volumes but retained Docker's
 previously downloaded image layers. It includes rebuilding the application
 image, downloading the model into an empty Ollama volume, generation,
 ingestion, and API readiness. It is not presented as a no-cache, new-VM
-measurement. Earlier empty-volume runs took 149 and 450 seconds, and the first
-Ollama image/model setup earlier in development took 1,881.738 seconds on the
-same network, demonstrating the effect of network and registry caching.
+measurement. Earlier empty-volume runs took 99, 149, 150, and 450 seconds, and
+the first Ollama image/model setup earlier in development took 1,881.738
+seconds on the same network, demonstrating the effect of network and registry
+caching.
 
 Health response:
 
@@ -58,17 +59,20 @@ Structured activity comparison for `user-0001`:
   "metric": "heart_rate",
   "start": "2026-01-05T00:00:00+00:00",
   "end": "2026-01-12T00:00:00+00:00",
+  "aggregation_basis": "recorded_observations",
   "rows": [
-    {"activity_state": "sleep", "average_bpm": 55.9, "observation_count": 707},
-    {"activity_state": "rest", "average_bpm": 63.3, "observation_count": 472},
-    {"activity_state": "ordinary_activity", "average_bpm": 95.2, "observation_count": 3587},
-    {"activity_state": "workout", "average_bpm": 154.4, "observation_count": 929}
+    {"activity_state": "sleep", "mean_recorded_bpm": 55.9, "observation_count": 707},
+    {"activity_state": "rest", "mean_recorded_bpm": 63.3, "observation_count": 472},
+    {"activity_state":"ordinary_activity","mean_recorded_bpm":95.2,"observation_count":3587},
+    {"activity_state": "workout", "mean_recorded_bpm": 154.4, "observation_count": 929}
   ]
 }
 ```
 
-The supported question `What was user-0001's average resting heart rate last
-week?` returned HTTP 200 and was interpreted as:
+The main natural-language demonstration used explicit snapshot dates:
+`What was user-0001's average resting heart rate each day from
+2026-01-05T00:00:00Z to 2026-01-12T00:00:00Z?`. It returned HTTP 200 and was
+interpreted as:
 
 ```json
 {
@@ -81,25 +85,26 @@ week?` returned HTTP 200 and was interpreted as:
 }
 ```
 
-The response also exposed the application-owned temporal interpretation:
+The response also exposed the application-owned temporal interpretation as an
+explicit range:
 
 ```json
 {
-  "kind": "previous_iso_week",
+  "kind": "explicit_range",
   "start": "2026-01-05T00:00:00Z",
   "end": "2026-01-12T00:00:00Z",
-  "timezone": "UTC",
-  "reference_time": "2026-01-12T00:00:00Z"
+  "timezone": null,
+  "reference_time": null
 }
 ```
 
-It returned eight local-day groups. The first was `2026-01-04`, average 63.7
-BPM from 25 readings, and the last was `2026-01-11`, average 63.1 BPM from 36
-readings. The UTC range crosses eight calendar dates in the user's
-`America/Los_Angeles` time zone.
+It returned eight local-day groups. The first was `2026-01-04`, a recorded
+observation mean of 63.7 BPM from 25 readings, and the last was `2026-01-11`,
+a recorded observation mean of 63.1 BPM from 36 readings. The UTC range
+crosses eight calendar dates in the user's `America/Los_Angeles` time zone.
 
-The ambiguous question `What was the average heart rate last week?` returned
-HTTP 422:
+The ambiguous question `What was the average heart rate from
+2026-01-05T00:00:00Z to 2026-01-12T00:00:00Z?` returned HTTP 422:
 
 ```json
 {
@@ -121,12 +126,16 @@ Command:
 python3 scripts/evaluate_natural_language.py
 ```
 
-Observed after the relative-date update: **6/6 live cases passed**. The explicit
-manifest contains eight cases; invalid model output and model unavailability
-are deterministic fault-injection cases covered by the isolated suite.
+Observed on the rebuilt stack: **6/6 live cases passed**. The manifest also
+contains invalid model output and model unavailability as deterministic
+fault-injection cases covered by the isolated suite.
 
-- Three explicit-range questions and one `last week` question produced the
-  expected structured operations, user scope, and ranges.
+- Three explicit-range questions produced the expected structured operations,
+  user scope, and ranges.
+- The `last week` question used the real request time, exposed the previous ISO
+  week `2026-10-12T00:00:00Z` through `2026-10-19T00:00:00Z` in UTC from
+  request reference `2026-10-20T13:56:35.901843Z`, and returned an empty result
+  because it did not overlap the January snapshot.
 - The ambiguous question returned HTTP 422 `ambiguous_question`.
 - The step-count question returned HTTP 422 `unsupported_metric`.
 
@@ -134,9 +143,9 @@ The initial live evaluation passed 3/5. The 1.5B model shortened
 `user-0001` to `0001` in the activity plan and emitted a placeholder user for
 the population plan. Both outputs were correctly rejected by grounding
 validation. The prompt was then tightened with explicit user-copy and JSON-null
-rules plus examples; the repeated live evaluation passed 5/5. After adding the
-application-owned `last week` resolver, the expanded live evaluation passed
-6/6.
+rules plus examples; the repeated live evaluation passed 5/5. The
+application-owned `last week` resolver now uses the real request time rather
+than the snapshot end date.
 
 ## Automated test evidence
 
@@ -146,7 +155,7 @@ Command:
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Observed on the updated worktree: **42 tests passed in 15.673 seconds**.
+Observed on the updated worktree: **44 tests passed in 12.186 seconds**.
 Coverage includes:
 
 - fixed-seed payload and ID reproducibility;
@@ -154,6 +163,8 @@ Coverage includes:
 - PostgreSQL constraints and replay idempotency;
 - committed-batch exception and resume;
 - hand-calculated answers for all three query operations;
+- explicit proof that population means weight recorded observations rather
+  than users equally;
 - empty, invalid timestamp, unsupported metric/operation, unknown user,
   excessive range, oversized response, and database-unavailable behavior;
 - structured endpoint schema excluding arbitrary SQL;
@@ -194,7 +205,7 @@ No failure occurred in the final empty-persisted-state script.
 ## Not verified
 
 - A brand-new VM with no Docker image cache was not available. Compose image
-  references, builds, and model preparation were exercised, but the 99-second
+  references, builds, and model preparation were exercised, but the 236-second
   timing must not be extrapolated to an uncached network.
 - AMD64 execution was not run; verification used ARM64.
 - Synthetic patterns were reviewed for demo plausibility. They were not

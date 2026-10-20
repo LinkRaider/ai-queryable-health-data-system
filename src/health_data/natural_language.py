@@ -35,7 +35,6 @@ PROMPT_INJECTION_TERMS = (
     "select *",
 )
 RELATIVE_LAST_WEEK_PATTERN = re.compile(r"\b(?:last|previous) week\b", re.IGNORECASE)
-DEFAULT_QUERY_REFERENCE_TIME = datetime(2026, 1, 12, tzinfo=UTC)
 DEFAULT_RELATIVE_DATE_TIMEZONE = "UTC"
 
 
@@ -106,9 +105,12 @@ When the application appends a "Resolved time range" line, copy those
 timestamps exactly. The application, not the model, resolves relative dates.
 
 Supported operation mapping:
-- daily_user_average: one user's RESTING heart-rate average grouped by local day.
-- activity_state_comparison: one user's heart rate compared across activity states.
-- population_daily_average: heart-rate average across all users grouped by UTC day.
+- daily_user_average: mean of one user's recorded RESTING heart-rate observations,
+  grouped by local day.
+- activity_state_comparison: mean of one user's recorded heart-rate observations,
+  compared across activity states.
+- population_daily_average: mean of recorded heart-rate observations across all
+  users, grouped by UTC day. This is not a per-user or time-weighted mean.
 
 The only metric is heart_rate. Do not infer missing users or timestamps.
 
@@ -218,9 +220,10 @@ def _render_timestamp(value: datetime) -> str:
 def resolve_temporal_expression(
     question: str,
     *,
-    reference_time: datetime = DEFAULT_QUERY_REFERENCE_TIME,
+    reference_time: datetime | None = None,
     timezone_name: str = DEFAULT_RELATIVE_DATE_TIMEZONE,
 ) -> TemporalInterpretation:
+    reference_time = reference_time or datetime.now(UTC)
     if reference_time.tzinfo is None or reference_time.utcoffset() is None:
         raise ValueError("query reference time must be offset-aware")
 
@@ -288,7 +291,7 @@ def _planner_question(
 def validate_question(
     question: str,
     *,
-    reference_time: datetime = DEFAULT_QUERY_REFERENCE_TIME,
+    reference_time: datetime | None = None,
     timezone_name: str = DEFAULT_RELATIVE_DATE_TIMEZONE,
 ) -> TemporalInterpretation:
     _validate_question_scope(question)
@@ -368,7 +371,7 @@ def interpret_question(
     question: str,
     planner: QueryPlanner,
     *,
-    reference_time: datetime = DEFAULT_QUERY_REFERENCE_TIME,
+    reference_time: datetime | None = None,
     timezone_name: str = DEFAULT_RELATIVE_DATE_TIMEZONE,
 ) -> NaturalLanguageInterpretation:
     temporal = validate_question(

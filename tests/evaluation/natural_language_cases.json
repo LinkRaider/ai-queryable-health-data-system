@@ -12,16 +12,11 @@
     }
   },
   {
-    "name": "daily resting average last week",
-    "category": "supported",
+    "name": "daily resting average for the real previous week",
+    "category": "supported_relative",
     "question": "What was user-0001's average resting heart rate last week?",
-    "plan": {
-      "operation": "daily_user_average",
-      "user_id": "user-0001",
-      "metric": "heart_rate",
-      "start": "2026-01-05T00:00:00Z",
-      "end": "2026-01-12T00:00:00Z"
-    }
+    "expected_operation": "daily_user_average",
+    "expected_user_id": "user-0001"
   },
   {
     "name": "activity comparison",
@@ -50,7 +45,7 @@
   {
     "name": "ambiguous missing subject and range",
     "category": "ambiguous",
-    "question": "What was the average heart rate last week?"
+    "question": "What was the average heart rate from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
   },
   {
     "name": "unsupported metric",

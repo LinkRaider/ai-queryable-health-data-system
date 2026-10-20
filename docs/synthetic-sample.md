@@ -13,7 +13,7 @@ These are synthetic engineering patterns, not clinically validated measurements.
 
 ## Population pattern summary
 
-| State | Events | Mean BPM |
+| State | Events | Mean recorded BPM |
 | --- | ---: | ---: |
 | `sleep` | 35,696 | 59.2 |
 | `rest` | 23,647 | 66.7 |
@@ -32,7 +32,7 @@ These are synthetic engineering patterns, not clinically validated measurements.
 
 Time zone: `America/Los_Angeles`. Planned workout: `20:52`–`21:29`. Device off: `14:12`–`15:26`.
 
-| Observed segment | State | Readings | Mean BPM |
+| Observed segment | State | Readings | Mean recorded BPM |
 | --- | --- | ---: | ---: |
 | `00:02:45`–`07:44:03` | `sleep` | 92 | 55.8 |
 | `07:49:05`–`08:28:28` | `rest` | 14 | 62.2 |

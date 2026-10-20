@@ -21,6 +21,7 @@ from health_data.natural_language import (
     InvalidModelOutputError,
     ModelUnavailableError,
     OllamaPlanner,
+    TIMESTAMP_PATTERN,
     interpret_model_plan,
 )
 
@@ -30,12 +31,17 @@ TEST_DATABASE_URL = os.getenv(
 )
 CASES_PATH = Path(__file__).parent / "evaluation" / "natural_language_cases.json"
 CASES = json.loads(CASES_PATH.read_text(encoding="utf-8"))
-SUPPORTED = [case for case in CASES if case["category"] == "supported"]
+SUPPORTED = [
+    case
+    for case in CASES
+    if case["category"] in {"supported", "supported_relative"}
+]
+TEST_REFERENCE_TIME = datetime(2026, 1, 12, tzinfo=UTC)
 
 
 class EvaluationPlanner:
     def __init__(self, cases=SUPPORTED) -> None:
-        self.plans = {case["question"]: case["plan"] for case in cases}
+        self.cases = cases
         self.call_count = 0
 
     def available(self) -> bool:
@@ -43,9 +49,18 @@ class EvaluationPlanner:
 
     def plan(self, question: str):
         self.call_count += 1
-        for original_question, plan in self.plans.items():
-            if question.startswith(original_question):
-                return plan
+        for case in self.cases:
+            if question.startswith(case["question"]):
+                if case["category"] == "supported":
+                    return case["plan"]
+                timestamps = TIMESTAMP_PATTERN.findall(question)
+                return {
+                    "operation": case["expected_operation"],
+                    "user_id": case["expected_user_id"],
+                    "metric": "heart_rate",
+                    "start": timestamps[0],
+                    "end": timestamps[1],
+                }
         raise KeyError(question)
 
 
@@ -160,9 +175,15 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.connection.close()
 
-    def test_explicit_supported_evaluation_questions(self) -> None:
+    def test_supported_evaluation_questions_with_injected_clock(self) -> None:
         planner = EvaluationPlanner()
-        client = TestClient(create_app(TEST_DATABASE_URL, planner=planner))
+        client = TestClient(
+            create_app(
+                TEST_DATABASE_URL,
+                planner=planner,
+                query_reference_time=TEST_REFERENCE_TIME,
+            )
+        )
         for case in SUPPORTED:
             with self.subTest(case=case["name"]):
                 response = client.post(
@@ -171,17 +192,28 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
                 )
                 self.assertEqual(200, response.status_code, response.text)
                 payload = response.json()
+                expected_operation = case.get(
+                    "expected_operation",
+                    case.get("plan", {}).get("operation"),
+                )
+                expected_user_id = case.get(
+                    "expected_user_id",
+                    case.get("plan", {}).get("user_id"),
+                )
                 self.assertEqual(
-                    case["plan"]["operation"],
+                    expected_operation,
                     payload["interpreted_query"]["operation"],
                 )
-                self.assertEqual(case["plan"]["user_id"], payload["interpreted_query"]["user_id"])
+                self.assertEqual(
+                    expected_user_id,
+                    payload["interpreted_query"]["user_id"],
+                )
                 self.assertEqual("heart_rate", payload["interpreted_query"]["metric"])
                 self.assertTrue(payload["result"]["rows"])
                 temporal = payload["temporal_interpretation"]
-                self.assertEqual(case["plan"]["start"], temporal["start"])
-                self.assertEqual(case["plan"]["end"], temporal["end"])
-                if "last week" in case["question"]:
+                if case["category"] == "supported_relative":
+                    self.assertEqual("2026-01-05T00:00:00Z", temporal["start"])
+                    self.assertEqual("2026-01-12T00:00:00Z", temporal["end"])
                     self.assertEqual("previous_iso_week", temporal["kind"])
                     self.assertEqual("UTC", temporal["timezone"])
                     self.assertEqual(
@@ -189,10 +221,53 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
                         temporal["reference_time"],
                     )
                 else:
+                    self.assertEqual(case["plan"]["start"], temporal["start"])
+                    self.assertEqual(case["plan"]["end"], temporal["end"])
                     self.assertEqual("explicit_range", temporal["kind"])
                     self.assertIsNone(temporal["timezone"])
                     self.assertIsNone(temporal["reference_time"])
         self.assertEqual(len(SUPPORTED), planner.call_count)
+
+    def test_last_week_uses_request_time_and_returns_empty_when_snapshot_has_no_data(
+        self,
+    ) -> None:
+        question = "What was user-0001's average resting heart rate last week?"
+        reference_time = datetime(2026, 10, 20, 13, 0, tzinfo=UTC)
+        planner = FixedPlanner(
+            output={
+                "operation": "daily_user_average",
+                "user_id": "user-0001",
+                "metric": "heart_rate",
+                "start": "2026-10-12T00:00:00Z",
+                "end": "2026-10-19T00:00:00Z",
+            }
+        )
+        response = TestClient(
+            create_app(
+                TEST_DATABASE_URL,
+                planner=planner,
+                query_reference_time=reference_time,
+            )
+        ).post(
+            "/v1/query/natural-language",
+            json={"question": question},
+        )
+
+        self.assertEqual(200, response.status_code, response.text)
+        payload = response.json()
+        self.assertEqual([], payload["result"]["rows"])
+        self.assertEqual(
+            "2026-10-20T13:00:00Z",
+            payload["temporal_interpretation"]["reference_time"],
+        )
+        self.assertEqual(
+            "2026-10-12T00:00:00Z",
+            payload["temporal_interpretation"]["start"],
+        )
+        self.assertEqual(
+            "2026-10-19T00:00:00Z",
+            payload["temporal_interpretation"]["end"],
+        )
 
     def test_ambiguous_question_is_rejected_before_model_call(self) -> None:
         case = next(case for case in CASES if case["category"] == "ambiguous")

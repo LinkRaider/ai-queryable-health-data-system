@@ -46,6 +46,7 @@ class QueryResult:
             "metric": self.metric,
             "start": self.start.isoformat(),
             "end": self.end.isoformat(),
+            "aggregation_basis": "recorded_observations",
             "rows": list(self.rows),
         }
 
@@ -116,7 +117,7 @@ def validate_query(query: StructuredQuery) -> StructuredQuery:
 DAILY_USER_AVERAGE_SQL = """
     SELECT
         (o.observed_at AT TIME ZONE u.timezone_name)::date AS day,
-        round(avg(o.value), 1)::double precision AS average_bpm,
+        round(avg(o.value), 1)::double precision AS mean_recorded_bpm,
         count(*)::integer AS observation_count
     FROM heart_rate_observations AS o
     JOIN users AS u ON u.user_id = o.user_id
@@ -134,7 +135,7 @@ DAILY_USER_AVERAGE_SQL = """
 ACTIVITY_STATE_COMPARISON_SQL = """
     SELECT
         o.activity_state,
-        round(avg(o.value), 1)::double precision AS average_bpm,
+        round(avg(o.value), 1)::double precision AS mean_recorded_bpm,
         count(*)::integer AS observation_count
     FROM heart_rate_observations AS o
     WHERE
@@ -155,7 +156,7 @@ ACTIVITY_STATE_COMPARISON_SQL = """
 POPULATION_DAILY_AVERAGE_SQL = """
     SELECT
         (o.observed_at AT TIME ZONE 'UTC')::date AS day,
-        round(avg(o.value), 1)::double precision AS average_bpm,
+        round(avg(o.value), 1)::double precision AS mean_recorded_bpm,
         count(*)::integer AS observation_count,
         count(DISTINCT o.user_id)::integer AS user_count
     FROM heart_rate_observations AS o

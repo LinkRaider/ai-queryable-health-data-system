@@ -8,6 +8,7 @@ import json
 import sys
 import urllib.error
 import urllib.request
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -51,19 +52,50 @@ def main() -> None:
             )
             continue
         status, payload = post_question(args.base_url, case["question"])
-        if case["category"] == "supported":
-            passed = (
-                status == 200
-                and payload.get("interpreted_query", {}).get("operation")
-                == case["plan"]["operation"]
-                and payload.get("interpreted_query", {}).get("user_id")
-                == case["plan"]["user_id"]
-                and payload.get("interpreted_query", {}).get("start")
-                == case["plan"]["start"]
-                and payload.get("interpreted_query", {}).get("end")
-                == case["plan"]["end"]
-            )
-            observed = payload.get("interpreted_query")
+        if case["category"] in {"supported", "supported_relative"}:
+            interpreted = payload.get("interpreted_query", {})
+            temporal = payload.get("temporal_interpretation", {})
+            result = payload.get("result", {})
+            if case["category"] == "supported":
+                passed = (
+                    status == 200
+                    and result.get("aggregation_basis") == "recorded_observations"
+                    and interpreted.get("operation") == case["plan"]["operation"]
+                    and interpreted.get("user_id") == case["plan"]["user_id"]
+                    and interpreted.get("start") == case["plan"]["start"]
+                    and interpreted.get("end") == case["plan"]["end"]
+                )
+            else:
+                try:
+                    reference = datetime.fromisoformat(
+                        temporal.get("reference_time", "").replace("Z", "+00:00")
+                    )
+                    start = datetime.fromisoformat(
+                        temporal.get("start", "").replace("Z", "+00:00")
+                    )
+                    end = datetime.fromisoformat(
+                        temporal.get("end", "").replace("Z", "+00:00")
+                    )
+                    passed = (
+                        status == 200
+                        and result.get("aggregation_basis") == "recorded_observations"
+                        and interpreted.get("operation") == case["expected_operation"]
+                        and interpreted.get("user_id") == case["expected_user_id"]
+                        and interpreted.get("start") == temporal.get("start")
+                        and interpreted.get("end") == temporal.get("end")
+                        and temporal.get("kind") == "previous_iso_week"
+                        and temporal.get("timezone") == "UTC"
+                        and end - start == timedelta(days=7)
+                        and end <= reference < end + timedelta(days=7)
+                        and abs(datetime.now(UTC) - reference) < timedelta(minutes=2)
+                        and result.get("rows") == []
+                    )
+                except (TypeError, ValueError):
+                    passed = False
+            observed = {
+                "interpreted_query": interpreted,
+                "temporal_interpretation": temporal,
+            }
         else:
             expected_code = {
                 "ambiguous": "ambiguous_question",

@@ -147,16 +147,20 @@ class StructuredQueryApiTests(unittest.TestCase):
             [
                 {
                     "day": "2026-01-05",
-                    "average_bpm": 70.0,
+                    "mean_recorded_bpm": 70.0,
                     "observation_count": 2,
                 },
                 {
                     "day": "2026-01-06",
-                    "average_bpm": 70.0,
+                    "mean_recorded_bpm": 70.0,
                     "observation_count": 1,
                 },
             ],
             response.json()["rows"],
+        )
+        self.assertEqual(
+            "recorded_observations",
+            response.json()["aggregation_basis"],
         )
 
     def test_empty_query_returns_200_with_empty_rows(self) -> None:
