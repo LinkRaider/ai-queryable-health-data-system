@@ -18,7 +18,6 @@ class Settings:
     ollama_url: str
     ollama_model: str
     ollama_timeout_seconds: float
-    query_reference_time: datetime
     relative_date_timezone: str
 
 
@@ -32,17 +31,6 @@ def load_settings() -> Settings:
         days=int(os.getenv("HEALTH_DATA_DAYS", "7")),
         user_count=int(os.getenv("HEALTH_DATA_USER_COUNT", "50")),
     )
-    query_reference_time = datetime.fromisoformat(
-        os.getenv(
-            "HEALTH_DATA_QUERY_REFERENCE_TIME",
-            generation.window_end.isoformat(),
-        ).replace("Z", "+00:00")
-    )
-    if (
-        query_reference_time.tzinfo is None
-        or query_reference_time.utcoffset() is None
-    ):
-        raise ValueError("HEALTH_DATA_QUERY_REFERENCE_TIME must include a UTC offset")
     return Settings(
         database_url=os.getenv(
             "HEALTH_DATA_DATABASE_URL",
@@ -58,7 +46,6 @@ def load_settings() -> Settings:
         ollama_timeout_seconds=float(
             os.getenv("HEALTH_DATA_OLLAMA_TIMEOUT_SECONDS", "30")
         ),
-        query_reference_time=query_reference_time,
         relative_date_timezone=os.getenv(
             "HEALTH_DATA_RELATIVE_DATE_TIMEZONE",
             "UTC",

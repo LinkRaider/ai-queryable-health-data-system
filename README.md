@@ -1,8 +1,10 @@
 # AI-Queryable Health Data System
 
-A small end-to-end system that generates deterministic synthetic heart-rate
-observations for 50 users over seven days, ingests them directly into
+A small end-to-end system that generates a fixed, deterministic synthetic
+heart-rate snapshot for 50 users over seven days, ingests it directly into
 PostgreSQL, and exposes bounded structured and natural-language analytics.
+It is a reproducible historical demo, not a continuously updating or real-time
+health service.
 
 The generated patterns are for an engineering demonstration. They are not
 clinically validated measurements and must not be used for health decisions.
@@ -74,7 +76,8 @@ Compose contains five purposeful services:
 - `api` starts only after bootstrap and model preparation finish. It serves
   health, structured analytics, natural-language analytics, and OpenAPI.
 
-There is no broker. For a deterministic seven-day batch, a broker adds
+There is no broker. Redpanda and Kafka are intentionally rejected alternatives,
+not running components. For a deterministic seven-day batch, a broker adds
 deployment and recovery paths without improving the demonstrated guarantees.
 PostgreSQL is both storage and analytical engine because this volume and the
 three access patterns fit indexed relational aggregation.
@@ -111,7 +114,8 @@ The dataset run key hashes schema version, generator version, seed, fixed
 window, and population. PostgreSQL separately records the batch size, expected
 count, total batches, next batch, inserted count, and status. A restart with a
 different batch size is rejected because existing checkpoints depend on that
-size. Event inserts and checkpoint advance commit in the same transaction:
+size. Event inserts and checkpoint advance commit in the same PostgreSQL
+transaction, which provides these atomicity guarantees:
 
 - termination before commit preserves neither the batch nor its checkpoint;
 - termination after commit preserves both;
@@ -119,15 +123,19 @@ size. Event inserts and checkpoint advance commit in the same transaction:
 - a completed replay inserts nothing;
 - primary-key and natural-key constraints independently prevent duplicates.
 
-The actual recovery harness sends `SIGKILL` after a known commit:
+The actual recovery harness tests one narrower case: it sends `SIGKILL` during
+a post-commit delay after a known durable checkpoint:
 
 ```bash
 ./scripts/test_interrupted_ingestion.sh
 ```
 
-The observed run stopped at batch 5 with exactly 5,000 durable events. Restart
-inserted the remaining 266,620. The recovered and uninterrupted databases both
-contained 271,620 events with digest
+It does not empirically kill an open transaction; rollback of an uncommitted
+transaction is a PostgreSQL guarantee supported by the transaction boundary in
+the code, not a claim established by this harness. The latest container run
+stopped at batch 6 with exactly 6,000 durable events. Restart inserted the
+remaining 265,620. The recovered and uninterrupted databases both contained
+271,620 events with digest
 `2791d4a9a5996490ff6191256d36ca5a`. Full evidence is in
 [`docs/interruption-verification.md`](docs/interruption-verification.md).
 
@@ -139,12 +147,18 @@ An empty match returns HTTP 200 with an empty `rows` array. Oversized results
 return HTTP 413 rather than silent truncation. Unsupported operations, metrics,
 dimensions, users, and malformed timestamps return structured errors.
 
-Only three operations exist:
+Only three operations exist. Every reported mean weights each recorded
+observation equally. It is not a time-weighted mean and does not give each user
+equal weight; state-dependent sampling cadence therefore affects it. Responses
+make this explicit with `aggregation_basis: "recorded_observations"` and
+`mean_recorded_bpm`.
 
-- `daily_user_average`: one user's resting average grouped by local day;
-- `activity_state_comparison`: one user's average and count by activity state;
-- `population_daily_average`: average, observation count, and user count by
-  UTC day.
+- `daily_user_average`: mean of one user's recorded resting observations,
+  grouped by local day;
+- `activity_state_comparison`: mean and count of one user's recorded
+  observations by activity state;
+- `population_daily_average`: mean of all recorded observations, observation
+  count, and contributing-user count by UTC day.
 
 SQL operation and grouping fragments are application-owned constants. Every
 request value is a bound parameter. No route accepts arbitrary SQL.
@@ -199,8 +213,8 @@ operations. The application then:
 
 1. accepts either two offset-aware timestamps or the explicit phrase `last
    week`;
-2. resolves `last week` to the previous ISO week using reference
-   `2026-01-12T00:00:00Z` and application time zone `UTC`;
+2. resolves `last week` at request time to the previous ISO week in application
+   time zone `UTC`;
 3. rejects missing user identity, unsupported metrics, and instruction-like
    input before model use;
 4. validates the model response with a strict, extra-field-forbidden schema;
@@ -220,9 +234,15 @@ curl --fail --request POST \
   http://127.0.0.1:8000/v1/query/natural-language \
   --header 'Content-Type: application/json' \
   --data '{
-    "question": "What was user-0001'\''s average resting heart rate last week?"
+    "question": "What was user-0001'\''s average resting heart rate each day from 2026-01-05T00:00:00Z to 2026-01-12T00:00:00Z?"
   }'
 ```
+
+The main demo uses explicit dates because the dataset is a January 2026
+snapshot. A `last week` request is relative to the real request time and
+normally returns `rows: []` once that week no longer overlaps the snapshot. The
+response exposes the resolved bounds, request reference time, and time zone; it
+never shifts `last week` back to the data window merely to produce rows.
 
 Run the eight-case evaluation manifest:
 
@@ -230,11 +250,12 @@ Run the eight-case evaluation manifest:
 python3 scripts/evaluate_natural_language.py
 ```
 
-Six live cases cover the three supported shapes, the relative-date question,
-an ambiguous question, and an unsupported metric. The same explicit manifest
-includes invalid model output and model unavailability; those two
-fault-injection cases run in isolated tests. Further isolated checks cover
-malformed JSON and invented users and dates.
+Six live cases cover the three supported shapes, a real request-time
+relative-date question with an empty result, an ambiguous question, and an
+unsupported metric. The same explicit manifest includes invalid model output
+and model unavailability; those two fault-injection cases run in isolated
+tests. Further isolated checks cover malformed JSON and invented users and
+dates.
 
 ## Tests
 
@@ -255,7 +276,7 @@ python3 -m venv .venv
 docker rm --force health-data-test-postgres
 ```
 
-The updated run passed 42 tests in 15.673 seconds. Hand-calculated fixtures check
+The updated run passed 44 tests in 12.186 seconds. Hand-calculated fixtures check
 all three operations. The final empty-state Compose flow is reproducible with:
 
 ```bash
@@ -268,7 +289,7 @@ replay leaves the row count unchanged.
 
 ## Measured verification
 
-The updated empty-persisted-state run completed in 99 seconds on ARM64 with
+The updated empty-persisted-state run completed in 236 seconds on ARM64 with
 cached image layers but empty PostgreSQL and Ollama volumes. It downloaded the
 model, generated and stored 271,620 observations, returned checked structured
 and natural-language responses, rejected an ambiguous question with HTTP 422,
@@ -276,7 +297,7 @@ and replayed with zero inserts. The updated live model evaluation passed 6/6.
 
 The exact responses, environment, corrected failures, test evidence, and
 measurement boundary are in
-[`docs/verification.md`](docs/verification.md). In particular, 99 seconds is
+[`docs/verification.md`](docs/verification.md). In particular, 236 seconds is
 not claimed as a no-cache fresh-VM time.
 
 ## Decisions and tradeoffs
@@ -291,8 +312,8 @@ not claimed as a no-cache fresh-VM time.
 - UUIDv5 and a natural unique key spend extra index space to defend against
   both replay and identity-algorithm defects.
 - Relative dates are intentionally narrow: `last week` means the previous ISO
-  week under a configured reference timestamp and time zone. Other shorthand
-  is rejected rather than guessed.
+  week relative to the real request time in UTC. Other shorthand is rejected
+  rather than guessed, and an out-of-snapshot range returns an empty result.
 - The 1.5B local model keeps data local and avoids paid credentials, but its
   image/model download dominates first startup and its interpretation quality
   is bounded by the explicit validator.
@@ -322,6 +343,11 @@ domain-owner review and environment-specific evidence.
   backup/restore automation, or production monitoring.
 - The synthetic generator models recognizable schedules and gaps, not
   physiology.
+- The data is a fixed historical snapshot. Normal restarts replay the same run
+  key and do not append current observations.
+- Means weight recorded observations equally, so high-cadence states and users
+  with more readings contribute more; no time weighting or equal-user
+  weighting is claimed.
 - The API supports three intentionally narrow operations and one metric.
 - Image tags and Python direct dependencies are pinned, but image digests and
   the complete transitive Python dependency graph are not locked.

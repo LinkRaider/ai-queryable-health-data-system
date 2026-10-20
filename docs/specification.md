@@ -113,9 +113,11 @@ single-user queries and UTC for population queries.
    each UTC day in that range?"  
    Operation: `population_daily_average`; no user filter; grouped by UTC day.
 
-Results contain explicit grouping dimensions, rounded average BPM, observation
-count, and—where relevant—distinct user count. An empty match returns HTTP 200
-with `rows: []`, not an invented zero.
+Results contain explicit grouping dimensions, rounded
+`mean_recorded_bpm`, observation count, and—where relevant—distinct user
+count. Each recorded observation has equal weight; these are not time-weighted
+or equal-user-weighted means. An empty match returns HTTP 200 with `rows: []`,
+not an invented zero.
 
 ## Query and error boundaries
 
@@ -139,12 +141,14 @@ with `rows: []`, not an invented zero.
 For natural language, the response includes the validated interpreted request
 and temporal interpretation beside the same result shape used by the
 structured endpoint. Questions may contain either two explicit offset-aware
-timestamps or `last week`. The latter is resolved by application code as the
-previous ISO week using reference `2026-01-12T00:00:00Z` and time zone `UTC`;
-the model receives the resolved bounds and cannot choose them. Unsupported
-metrics, missing users, unsupported or conflicting date expressions, invalid
-JSON, extra fields, and out-of-bounds plans are rejected. First-person identity
-is rejected because authentication is not implemented. The application never
+timestamps or `last week`. The latter is resolved by application code at
+request time as the previous ISO week in time zone `UTC`; the model receives
+the resolved bounds and cannot choose them. If that real relative range does
+not overlap the fixed historical snapshot, the valid result is empty. The
+application never shifts the range merely to find data. Unsupported metrics,
+missing users, unsupported or conflicting date expressions, invalid JSON,
+extra fields, and out-of-bounds plans are rejected. First-person identity is
+rejected because authentication is not implemented. The application never
 substitutes another metric, user, range, or operation.
 
 ## Durable ingestion and recovery
@@ -169,7 +173,11 @@ The interruption test will load an identical baseline database, start a delayed
 load into a fresh database, kill the bootstrap container after at least one
 batch commits and before completion, record the checkpoint and row count,
 restart it, and compare final row count plus a stable digest of event identity
-and values with the uninterrupted baseline.
+and values with the uninterrupted baseline. This directly tests restart from a
+durable post-commit checkpoint. It does not send a signal inside an open
+transaction; rollback before commit remains a PostgreSQL atomicity guarantee
+supported by the transaction boundary in the code rather than direct
+interruption evidence.
 
 ## Acceptance criteria
 
@@ -201,7 +209,7 @@ and values with the uninterrupted baseline.
   parameterised queries.
 - Natural-language requests invoke the Compose-managed local model, validate
   its structured plan through the same path, and return that interpretation,
-  including application-resolved relative-date context.
+  including request-time application-resolved relative-date context.
 - An explicit evaluation set covers all three supported question shapes,
   ambiguity, unsupported metrics, invalid model output, and model
   unavailability.
@@ -233,8 +241,9 @@ and values with the uninterrupted baseline.
 - **PostgreSQL for storage and analytics:** the exposed dimensions and volume
   fit indexed relational queries. One engine avoids a second datastore and a
   synchronization path.
-- **Fixed demo window over wall-clock-relative history:** reproducibility and
-  restart safety outweigh making the sample dates appear current.
+- **Fixed demo snapshot over continuous ingestion:** reproducibility and
+  restart safety outweigh making the sample dates appear current. Normal
+  restarts do not append new observations.
 - **One heart-rate table over a generic EAV design:** the only supported metric
   gets strong constraints, clear indexes, and readable queries. A new metric
   can receive a deliberate schema and query contract later.

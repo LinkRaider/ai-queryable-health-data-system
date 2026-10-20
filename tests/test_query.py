@@ -144,12 +144,12 @@ class AnalyticalQueryTests(unittest.TestCase):
             (
                 {
                     "day": "2026-01-05",
-                    "average_bpm": 60.0,
+                    "mean_recorded_bpm": 60.0,
                     "observation_count": 3,
                 },
                 {
                     "day": "2026-01-06",
-                    "average_bpm": 70.0,
+                    "mean_recorded_bpm": 70.0,
                     "observation_count": 1,
                 },
             ),
@@ -170,17 +170,17 @@ class AnalyticalQueryTests(unittest.TestCase):
             (
                 {
                     "activity_state": "rest",
-                    "average_bpm": 62.5,
+                    "mean_recorded_bpm": 62.5,
                     "observation_count": 4,
                 },
                 {
                     "activity_state": "ordinary_activity",
-                    "average_bpm": 100.0,
+                    "mean_recorded_bpm": 100.0,
                     "observation_count": 1,
                 },
                 {
                     "activity_state": "workout",
-                    "average_bpm": 160.0,
+                    "mean_recorded_bpm": 160.0,
                     "observation_count": 1,
                 },
             ),
@@ -200,18 +200,38 @@ class AnalyticalQueryTests(unittest.TestCase):
             (
                 {
                     "day": "2026-01-05",
-                    "average_bpm": 61.7,
+                    "mean_recorded_bpm": 61.7,
                     "observation_count": 6,
                     "user_count": 2,
                 },
                 {
                     "day": "2026-01-06",
-                    "average_bpm": 113.3,
+                    "mean_recorded_bpm": 113.3,
                     "observation_count": 3,
                     "user_count": 2,
                 },
             ),
             result.rows,
+        )
+
+    def test_population_mean_weights_recorded_observations_not_users(self) -> None:
+        result = execute_query(
+            self.connection,
+            StructuredQuery(
+                operation=QueryOperation.POPULATION_DAILY_AVERAGE,
+                start=START,
+                end=START + timedelta(days=1),
+            ),
+        )
+
+        row = result.rows[0]
+        self.assertEqual(6, row["observation_count"])
+        self.assertEqual(2, row["user_count"])
+        self.assertEqual(61.7, row["mean_recorded_bpm"])
+        self.assertNotEqual(
+            57.5,
+            row["mean_recorded_bpm"],
+            "the API reports an observation-weighted mean, not equal user weighting",
         )
 
     def test_range_is_start_inclusive_and_end_exclusive(self) -> None:
@@ -228,7 +248,7 @@ class AnalyticalQueryTests(unittest.TestCase):
             (
                 {
                     "day": "2026-01-05",
-                    "average_bpm": 40.0,
+                    "mean_recorded_bpm": 40.0,
                     "observation_count": 1,
                 },
             ),
@@ -291,12 +311,12 @@ class AnalyticalQueryTests(unittest.TestCase):
             (
                 {
                     "day": "2026-01-04",
-                    "average_bpm": 50.0,
+                    "mean_recorded_bpm": 50.0,
                     "observation_count": 1,
                 },
                 {
                     "day": "2026-01-05",
-                    "average_bpm": 70.0,
+                    "mean_recorded_bpm": 70.0,
                     "observation_count": 1,
                 },
             ),
