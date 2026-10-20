@@ -17,7 +17,9 @@ from health_data.query import QueryOperation, StructuredQuery, validate_query
 TIMESTAMP_PATTERN = re.compile(
     r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})"
 )
-USER_PATTERN = re.compile(r"\buser-[0-9]{4}\b")
+USER_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_-])user-[0-9]{4}(?![A-Za-z0-9_-])"
+)
 UNSUPPORTED_METRIC_TERMS = (
     "steps",
     "step count",
@@ -60,12 +62,24 @@ DAILY_GROUPING_PATTERN = re.compile(
     r"\b(?:(?:each|per|by) (?:(?:UTC|local) )?day|daily)\b",
     re.IGNORECASE,
 )
+UTC_DAY_GROUPING_PATTERN = re.compile(
+    r"\b(?:each|per|by) UTC day\b",
+    re.IGNORECASE,
+)
+LOCAL_DAY_GROUPING_PATTERN = re.compile(
+    r"\b(?:each|per|by) local day\b",
+    re.IGNORECASE,
+)
 ACTIVITY_COMPARISON_PATTERN = re.compile(
     r"\b(?:compare|comparison|across|by)\b",
     re.IGNORECASE,
 )
 ACTIVITY_STATE_GROUPING_PATTERN = re.compile(
     r"\b(?:activity states?|by state)\b",
+    re.IGNORECASE,
+)
+SPECIFIC_ACTIVITY_STATE_PATTERN = re.compile(
+    r"\b(?:rest(?:ing)?|sleep(?:ing)?|ordinary activity|workout)\b",
     re.IGNORECASE,
 )
 UNSUPPORTED_GROUPING_PATTERN = re.compile(
@@ -98,6 +112,10 @@ class UnsupportedOperationError(NaturalLanguageError):
 
 class UnsupportedQuestionError(NaturalLanguageError):
     code = "unsupported_question"
+
+
+class InvalidTimestampError(NaturalLanguageError):
+    code = "invalid_timestamp"
 
 
 class InvalidModelOutputError(NaturalLanguageError):
@@ -268,6 +286,10 @@ def _validate_question_scope(question: str) -> None:
     activity_state_grouping = (
         ACTIVITY_STATE_GROUPING_PATTERN.search(question) is not None
     )
+    specific_activity_states = {
+        match.lower()
+        for match in SPECIFIC_ACTIVITY_STATE_PATTERN.findall(question)
+    }
     if UNSUPPORTED_GROUPING_PATTERN.search(question):
         raise UnsupportedOperationError(
             "question requests an unsupported grouping dimension"
@@ -275,6 +297,20 @@ def _validate_question_scope(question: str) -> None:
     if daily_grouping and activity_state_grouping:
         raise UnsupportedOperationError(
             "combining daily and activity-state grouping is not supported"
+        )
+    if population_scope and specific_activity_states:
+        raise UnsupportedOperationError(
+            "population averages do not support activity-state filters"
+        )
+    if activity_state_grouping and specific_activity_states:
+        raise UnsupportedOperationError(
+            "activity-state comparison does not support selecting a subset of states"
+        )
+    if daily_grouping and (
+        specific_activity_states - {"rest", "resting"}
+    ):
+        raise UnsupportedOperationError(
+            "daily resting averages do not support additional activity-state filters"
         )
     if (
         population_scope
@@ -292,6 +328,23 @@ def _validate_question_scope(question: str) -> None:
     ):
         raise UnsupportedOperationError(
             "resting averages require explicit daily grouping"
+        )
+    if (
+        USER_PATTERN.search(question)
+        and "rest" in normalised
+        and daily_grouping
+        and UTC_DAY_GROUPING_PATTERN.search(question)
+    ):
+        raise UnsupportedOperationError(
+            "single-user daily averages use the user's local day, not UTC day"
+        )
+    if (
+        population_scope
+        and daily_grouping
+        and LOCAL_DAY_GROUPING_PATTERN.search(question)
+    ):
+        raise UnsupportedOperationError(
+            "population daily averages use UTC day, not local day"
         )
 
 
@@ -323,9 +376,15 @@ def resolve_temporal_expression(
             "question cannot combine last week with an explicit timestamp range"
         )
     if len(matches) == 2:
-        timestamps = tuple(
-            datetime.fromisoformat(value.replace("Z", "+00:00")) for value in matches
-        )
+        try:
+            timestamps = tuple(
+                datetime.fromisoformat(value.replace("Z", "+00:00"))
+                for value in matches
+            )
+        except ValueError as error:
+            raise InvalidTimestampError(
+                "question contains an invalid RFC 3339 timestamp"
+            ) from error
         return TemporalInterpretation(
             kind="explicit_range",
             start=timestamps[0],
@@ -431,6 +490,14 @@ def interpret_model_plan(
             or AVERAGE_INTENT_PATTERN.search(question) is None
             or DAILY_GROUPING_PATTERN.search(question) is None
             or ACTIVITY_STATE_GROUPING_PATTERN.search(question) is not None
+            or UTC_DAY_GROUPING_PATTERN.search(question) is not None
+            or (
+                {
+                    match.lower()
+                    for match in SPECIFIC_ACTIVITY_STATE_PATTERN.findall(question)
+                }
+                - {"rest", "resting"}
+            )
         )
     ):
         raise UnsupportedOperationError(
@@ -444,6 +511,7 @@ def interpret_model_plan(
             or ACTIVITY_COMPARISON_PATTERN.search(question) is None
             or AVERAGE_INTENT_PATTERN.search(question) is None
             or DAILY_GROUPING_PATTERN.search(question) is not None
+            or SPECIFIC_ACTIVITY_STATE_PATTERN.search(question) is not None
         )
     ):
         raise UnsupportedOperationError(
@@ -458,6 +526,8 @@ def interpret_model_plan(
         or AVERAGE_INTENT_PATTERN.search(question) is None
         or DAILY_GROUPING_PATTERN.search(question) is None
         or ACTIVITY_STATE_GROUPING_PATTERN.search(question) is not None
+        or SPECIFIC_ACTIVITY_STATE_PATTERN.search(question) is not None
+        or LOCAL_DAY_GROUPING_PATTERN.search(question) is not None
     ):
         raise UnsupportedOperationError(
             "population_daily_average requires an explicit daily population average"

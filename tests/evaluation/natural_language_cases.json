@@ -88,6 +88,36 @@
     "question": "What was user-0001's average resting heart rate hourly from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
   },
   {
+    "name": "population resting filter is unsupported",
+    "category": "unsupported_operation",
+    "question": "What was the population average resting heart rate each UTC day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+  },
+  {
+    "name": "single-user UTC-day grouping is unsupported",
+    "category": "unsupported_operation",
+    "question": "What was user-0001's average resting heart rate each UTC day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+  },
+  {
+    "name": "population local-day grouping is unsupported",
+    "category": "unsupported_operation",
+    "question": "What was the population average heart rate each local day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+  },
+  {
+    "name": "activity-state subset is unsupported",
+    "category": "unsupported_operation",
+    "question": "Compare user-0001's average heart rate across rest and workout activity states from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z."
+  },
+  {
+    "name": "invalid calendar timestamp",
+    "category": "invalid_timestamp",
+    "question": "What was user-0001's average resting heart rate each day from 2026-02-30T00:00:00Z to 2026-03-02T00:00:00Z?"
+  },
+  {
+    "name": "malformed user identity",
+    "category": "ambiguous",
+    "question": "What was user-0001-extra's average resting heart rate each day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+  },
+  {
     "name": "unsupported medical advice",
     "category": "unsupported_question",
     "question": "Is user-0001's heart rate healthy from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"

@@ -155,9 +155,12 @@ First-person identity is rejected because authentication is not implemented.
 The application requires daily wording for both daily operations, requires
 activity-state wording only for the state comparison, and rejects combined or
 unsupported dimensions such as hourly, daily-plus-state, device, or user
-grouping. It validates these lexical operation cues before and after planning
-and never substitutes another metric, user, range, aggregation, grouping, or
-operation.
+grouping. It also rejects state filters unsupported by an operation, UTC
+grouping for the local-day user operation, local grouping for the UTC
+population operation, malformed user tokens, and invalid calendar timestamps.
+It validates these recognized lexical cues before and after planning and
+rejects detected mismatches. This is a bounded contract, not a claim of general
+natural-language understanding.
 
 ## Durable ingestion and recovery
 
@@ -226,8 +229,9 @@ deadline expires.
   including request-time application-resolved relative-date context.
 - An explicit evaluation set covers all three supported question shapes,
   ambiguity, unsupported metrics, unsupported aggregations, missing,
-  conflicting, and unsupported grouping dimensions, medical advice, invalid
-  model output, and model unavailability.
+  conflicting, and unsupported grouping dimensions, incompatible state
+  filters and grouping time zones, malformed identity, invalid timestamps,
+  medical advice, invalid model output, and model unavailability.
 - Clean-start verification exercises health, one structured query, one
   supported natural-language query, one rejected natural-language query, and
   records the observed responses.
