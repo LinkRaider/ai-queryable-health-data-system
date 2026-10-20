@@ -27,6 +27,7 @@ from health_data.generator import (
 )
 
 DEFAULT_BATCH_SIZE = 1_000
+INGESTION_LOCK_KEY = "health-data-single-snapshot-ingestion"
 SCHEMA_PATH = Path(
     os.getenv(
         "HEALTH_DATA_SCHEMA_PATH",
@@ -190,7 +191,10 @@ def ingest(
     lock_acquired = False
 
     try:
-        connection.execute("SELECT pg_advisory_lock(hashtextextended(%s, 0))", (run_key,))
+        connection.execute(
+            "SELECT pg_advisory_lock(hashtextextended(%s, 0))",
+            (INGESTION_LOCK_KEY,),
+        )
         connection.commit()
         lock_acquired = True
 
@@ -201,6 +205,15 @@ def ingest(
         connection.commit()
 
         if run is None:
+            existing_run = connection.execute(
+                "SELECT run_key FROM ingestion_runs ORDER BY started_at LIMIT 1"
+            ).fetchone()
+            connection.commit()
+            if existing_run is not None:
+                raise RuntimeError(
+                    "database already contains a different ingestion run; "
+                    "use an isolated database for a different generation configuration"
+                )
             expected_event_count = sum(1 for _ in generate_events(config))
             total_batches = math.ceil(expected_event_count / batch_size)
             with connection.transaction():
@@ -294,6 +307,6 @@ def ingest(
                 connection.rollback()
             connection.execute(
                 "SELECT pg_advisory_unlock(hashtextextended(%s, 0))",
-                (run_key,),
+                (INGESTION_LOCK_KEY,),
             )
             connection.commit()

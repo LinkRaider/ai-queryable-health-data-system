@@ -121,6 +121,26 @@ class IngestionRecoveryTests(unittest.TestCase):
             ),
         )
 
+    def test_different_generation_configuration_requires_isolated_database(
+        self,
+    ) -> None:
+        original = GenerationConfig(days=1, user_count=1)
+        different = GenerationConfig(
+            seed=original.seed + 1,
+            days=1,
+            user_count=1,
+        )
+        ingest(self.connection, original, batch_size=500)
+
+        with self.assertRaisesRegex(RuntimeError, "isolated database"):
+            ingest(self.connection, different, batch_size=500)
+
+        run_count = self.connection.execute(
+            "SELECT count(*) AS count FROM ingestion_runs"
+        ).fetchone()["count"]
+        self.connection.commit()
+        self.assertEqual(1, run_count)
+
     def test_database_rejects_complete_run_with_missing_events(self) -> None:
         with self.assertRaises(psycopg.errors.CheckViolation):
             self.connection.execute(

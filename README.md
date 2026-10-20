@@ -84,6 +84,10 @@ three access patterns fit indexed relational aggregation.
 
 ## Data contract and synthetic patterns
 
+This is the first area of deliberate depth: deterministic generation with
+distinguishable profiles, state-dependent irregular sampling, and explicit
+device-off gaps.
+
 The full contract and acceptance criteria are in
 [`docs/specification.md`](docs/specification.md). Each v1 observation contains:
 
@@ -108,14 +112,17 @@ no-reading gap are in
 
 ## Idempotent ingestion and recovery
 
-This is the first area of deliberate depth.
+This is the second area of deliberate depth.
 
 The dataset run key hashes schema version, generator version, seed, fixed
 window, and population. PostgreSQL separately records the batch size, expected
 count, total batches, next batch, inserted count, and status. A restart with a
 different batch size is rejected because existing checkpoints depend on that
-size. Event inserts and checkpoint advance commit in the same PostgreSQL
-transaction, which provides these atomicity guarantees:
+size. The demo database accepts only one generation run key; another seed,
+window, population, or generator version requires an isolated database instead
+of mixing profiles or overlapping natural event keys. Event inserts and
+checkpoint advance commit in the same PostgreSQL transaction, which provides
+these atomicity guarantees:
 
 - termination before commit preserves neither the batch nor its checkpoint;
 - termination after commit preserves both;
@@ -133,8 +140,8 @@ a post-commit delay after a known durable checkpoint:
 It does not empirically kill an open transaction; rollback of an uncommitted
 transaction is a PostgreSQL guarantee supported by the transaction boundary in
 the code, not a claim established by this harness. The latest container run
-stopped at batch 6 with exactly 6,000 durable events. Restart inserted the
-remaining 265,620. The recovered and uninterrupted databases both contained
+stopped at batch 5 with exactly 5,000 durable events. Restart inserted the
+remaining 266,620. The recovered and uninterrupted databases both contained
 271,620 events with digest
 `2791d4a9a5996490ff6191256d36ca5a`. Full evidence is in
 [`docs/interruption-verification.md`](docs/interruption-verification.md).
@@ -206,7 +213,8 @@ curl --fail --request POST http://127.0.0.1:8000/v1/query \
 
 ## Constrained natural-language layer
 
-This is the second area of deliberate depth.
+This is Bonus 2, implemented as a constrained interface over the same validated
+structured-query path rather than a third claimed depth area.
 
 Ollama receives a question and returns only a candidate JSON plan for the three
 operations. The application then:
@@ -276,7 +284,7 @@ python3 -m venv .venv
 docker rm --force health-data-test-postgres
 ```
 
-The updated run passed 44 tests in 12.186 seconds. Hand-calculated fixtures check
+The updated run passed 45 tests in 11.864 seconds. Hand-calculated fixtures check
 all three operations. The final empty-state Compose flow is reproducible with:
 
 ```bash
@@ -289,7 +297,7 @@ replay leaves the row count unchanged.
 
 ## Measured verification
 
-The updated empty-persisted-state run completed in 236 seconds on ARM64 with
+The updated empty-persisted-state run completed in 158 seconds on ARM64 with
 cached image layers but empty PostgreSQL and Ollama volumes. It downloaded the
 model, generated and stored 271,620 observations, returned checked structured
 and natural-language responses, rejected an ambiguous question with HTTP 422,
@@ -297,7 +305,7 @@ and replayed with zero inserts. The updated live model evaluation passed 6/6.
 
 The exact responses, environment, corrected failures, test evidence, and
 measurement boundary are in
-[`docs/verification.md`](docs/verification.md). In particular, 236 seconds is
+[`docs/verification.md`](docs/verification.md). In particular, 158 seconds is
 not claimed as a no-cache fresh-VM time.
 
 ## Decisions and tradeoffs
