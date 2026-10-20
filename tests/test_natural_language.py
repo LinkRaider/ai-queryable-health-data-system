@@ -342,6 +342,60 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
         self.assertEqual("ambiguous_question", response.json()["error"]["code"])
         self.assertEqual(0, planner.call_count)
 
+    def test_invalid_explicit_timestamps_return_structured_422(self) -> None:
+        invalid_starts = (
+            "2026-02-30T00:00:00Z",
+            "2026-13-01T00:00:00Z",
+            "2026-01-05T25:00:00Z",
+            "2026-01-05T00:00:00+25:00",
+        )
+        for invalid_start in invalid_starts:
+            with self.subTest(start=invalid_start):
+                planner = FixedPlanner(output={})
+                response = TestClient(
+                    create_app(TEST_DATABASE_URL, planner=planner)
+                ).post(
+                    "/v1/query/natural-language",
+                    json={
+                        "question": (
+                            "What was user-0001's average resting heart rate each "
+                            f"day from {invalid_start} to 2026-03-02T00:00:00Z?"
+                        )
+                    },
+                )
+                self.assertEqual(422, response.status_code, response.text)
+                self.assertEqual(
+                    "invalid_timestamp",
+                    response.json()["error"]["code"],
+                )
+                self.assertEqual(0, planner.call_count)
+
+    def test_malformed_user_id_does_not_ground_valid_prefix(self) -> None:
+        planner = FixedPlanner(
+            output={
+                "operation": "daily_user_average",
+                "user_id": "user-0001",
+                "metric": "heart_rate",
+                "start": "2026-01-05T00:00:00Z",
+                "end": "2026-01-07T00:00:00Z",
+            }
+        )
+        response = TestClient(
+            create_app(TEST_DATABASE_URL, planner=planner)
+        ).post(
+            "/v1/query/natural-language",
+            json={
+                "question": (
+                    "What was user-0001-extra's average resting heart rate each "
+                    "day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+                )
+            },
+        )
+
+        self.assertEqual(422, response.status_code)
+        self.assertEqual("ambiguous_question", response.json()["error"]["code"])
+        self.assertEqual(0, planner.call_count)
+
     def test_daily_average_requires_explicit_daily_grouping(self) -> None:
         question = (
             "What was user-0001's average resting heart rate from "

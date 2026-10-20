@@ -229,8 +229,9 @@ operations. The application then:
    aggregations, medical-advice requests, unsupported relative dates, and
    instruction-like input;
 4. validates the model response with a strict, extra-field-forbidden schema;
-5. proves that user, resolved timestamps, aggregation, grouping, and operation
-   cues match application-owned context;
+5. checks exact user tokens and recognized timestamp, aggregation, grouping,
+   state-filter, time-zone, and operation cues against a bounded lexical
+   contract;
 6. applies the same structured-query validation and limits;
 7. builds parameterised SQL from application-owned statements.
 
@@ -240,6 +241,9 @@ HTTP 503. Every successful response includes `interpreted_query` and
 `temporal_interpretation`, including the resolved range, reference time, and
 time zone, beside the result. First-person questions such as “my heart rate”
 remain rejected because authentication does not provide a user identity.
+This validator deliberately recognizes a constrained vocabulary; it rejects
+known incompatibilities and does not claim general understanding of arbitrary
+natural language.
 
 ```bash
 curl --fail --request POST \
@@ -264,13 +268,15 @@ Run the evaluation manifest:
 python3 scripts/evaluate_natural_language.py
 ```
 
-Fourteen live endpoint cases cover the three supported shapes, a real
+Twenty live endpoint cases cover the three supported shapes, a real
 request-time relative-date question, ambiguity, unsupported metrics,
 aggregations, missing or conflicting grouping intent, an unsupported hourly
-dimension, and medical advice. The same explicit manifest includes invalid
-model output and model unavailability; those two fault-injection cases run in
-isolated tests. Further isolated checks cover fractional seconds, conflicting
-date expressions, malformed JSON, and invented users and dates.
+dimension, incompatible state filters and grouping time zones, malformed user
+identity, invalid timestamps, and medical advice. The same explicit manifest
+includes invalid model output and model unavailability; those two
+fault-injection cases run in isolated tests. Further isolated checks cover
+fractional seconds, conflicting date expressions, malformed JSON, and invented
+users and dates.
 
 ## Tests
 
@@ -291,7 +297,7 @@ python3 -m venv .venv
 docker rm --force health-data-test-postgres
 ```
 
-The updated run passed 49 tests in 12.541 seconds. Hand-calculated fixtures check
+The updated run passed 51 tests in 11.900 seconds. Hand-calculated fixtures check
 all three operations. The final empty-state Compose flow is reproducible with:
 
 ```bash
@@ -304,16 +310,16 @@ replay leaves the row count unchanged.
 
 ## Measured verification
 
-The updated empty-persisted-state run completed in 208 seconds on ARM64 with
+The updated empty-persisted-state run completed in 286 seconds on ARM64 with
 cached image layers but empty PostgreSQL and Ollama volumes. It downloaded the
 model, generated and stored 271,620 observations, returned checked structured
 and natural-language responses, rejected an ambiguous question with HTTP 422,
 and replayed with zero inserts. The updated live endpoint evaluation passed
-14/14.
+20/20.
 
 The exact responses, environment, corrected failures, test evidence, and
 measurement boundary are in
-[`docs/verification.md`](docs/verification.md). In particular, 208 seconds is
+[`docs/verification.md`](docs/verification.md). In particular, 286 seconds is
 not claimed as a no-cache fresh-VM time.
 
 ## Decisions and tradeoffs

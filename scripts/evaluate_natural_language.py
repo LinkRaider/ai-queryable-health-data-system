@@ -116,6 +116,7 @@ def main() -> None:
         else:
             expected_code = {
                 "ambiguous": "ambiguous_question",
+                "invalid_timestamp": "invalid_timestamp",
                 "unsupported_metric": "unsupported_metric",
                 "unsupported_operation": "unsupported_operation",
                 "unsupported_question": "unsupported_question",
