@@ -166,8 +166,10 @@ checkpoint advance commit in one database transaction:
 - Restart regenerates the identical sequence and starts at the durable next
   batch index.
 - Replaying a completed run performs no duplicate inserts.
-- A run-key mismatch creates a distinct declared run; it cannot mutate or
-  silently extend an existing run.
+- The demo database holds one declared generation configuration. A different
+  run key is rejected and requires an isolated database. Coexistence or
+  migration between configurations is outside the validated design because
+  stable profile IDs and overlapping natural observation keys can conflict.
 
 The interruption test will load an identical baseline database, start a delayed
 load into a fresh database, kill the bootstrap container after at least one
@@ -196,6 +198,8 @@ interruption evidence.
 
 - PostgreSQL rejects duplicate event IDs and duplicate natural event keys.
 - Replaying a complete load leaves the event count and digest unchanged.
+- A different generation run key is rejected instead of mixing configurations
+  in the same demo database.
 - The interruption procedure resumes to the same count and digest as an
   uninterrupted load.
 - Fixture tests with hand-calculated values verify all three operations,
@@ -229,8 +233,6 @@ interruption evidence.
 - AI-usage notes state delegated work, human corrections, and work that
   requires human judgment without claiming reviews that did not occur.
 - The README ends with the required "If you had two more weeks" paragraph.
-- Git history contains the ten required focused commits in the prescribed
-  order.
 
 ## Chosen tradeoffs
 

@@ -13,6 +13,19 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES_PATH = ROOT / "tests" / "evaluation" / "natural_language_cases.json"
+SNAPSHOT_START = datetime(2026, 1, 5, tzinfo=UTC)
+SNAPSHOT_END = datetime(2026, 1, 12, tzinfo=UTC)
+
+
+def relative_result_matches_snapshot(
+    start: datetime,
+    end: datetime,
+    rows: object,
+) -> bool:
+    if not isinstance(rows, list):
+        return False
+    overlaps_snapshot = start < SNAPSHOT_END and end > SNAPSHOT_START
+    return bool(rows) if overlaps_snapshot else rows == []
 
 
 def post_question(base_url: str, question: str) -> tuple[int, dict]:
@@ -88,7 +101,11 @@ def main() -> None:
                         and end - start == timedelta(days=7)
                         and end <= reference < end + timedelta(days=7)
                         and abs(datetime.now(UTC) - reference) < timedelta(minutes=2)
-                        and result.get("rows") == []
+                        and relative_result_matches_snapshot(
+                            start,
+                            end,
+                            result.get("rows"),
+                        )
                     )
                 except (TypeError, ValueError):
                     passed = False
