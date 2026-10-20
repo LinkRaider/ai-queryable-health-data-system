@@ -365,7 +365,7 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
 
         self.assertEqual(422, response.status_code)
         self.assertEqual("unsupported_operation", response.json()["error"]["code"])
-        self.assertEqual(1, planner.call_count)
+        self.assertEqual(0, planner.call_count)
 
     def test_ambiguous_question_is_rejected_before_model_call(self) -> None:
         case = next(case for case in CASES if case["category"] == "ambiguous")

@@ -57,11 +57,20 @@ MEDICAL_ADVICE_PATTERN = re.compile(
 )
 AVERAGE_INTENT_PATTERN = re.compile(r"\b(?:average|mean)\b", re.IGNORECASE)
 DAILY_GROUPING_PATTERN = re.compile(
-    r"\b(?:each day|per day|daily|by day)\b",
+    r"\b(?:(?:each|per|by) (?:(?:UTC|local) )?day|daily)\b",
     re.IGNORECASE,
 )
 ACTIVITY_COMPARISON_PATTERN = re.compile(
     r"\b(?:compare|comparison|across|by)\b",
+    re.IGNORECASE,
+)
+ACTIVITY_STATE_GROUPING_PATTERN = re.compile(
+    r"\b(?:activity states?|by state)\b",
+    re.IGNORECASE,
+)
+UNSUPPORTED_GROUPING_PATTERN = re.compile(
+    r"\b(?:hourly|weekly|monthly|"
+    r"(?:by|per) (?:hour|week|month|user|device|timezone))\b",
     re.IGNORECASE,
 )
 DEFAULT_RELATIVE_DATE_TIMEZONE = "UTC"
@@ -158,8 +167,8 @@ Output: {"operation":"activity_state_comparison","user_id":"user-0042",
 "metric":"heart_rate","start":"2026-02-01T00:00:00Z",
 "end":"2026-02-02T00:00:00Z"}
 
-Question: What was the population average heart rate across all users from
-2026-02-01T00:00:00Z to 2026-02-02T00:00:00Z?
+Question: What was the population average heart rate across all users each UTC
+day from 2026-02-01T00:00:00Z to 2026-02-02T00:00:00Z?
 Output: {"operation":"population_daily_average","user_id":null,
 "metric":"heart_rate","start":"2026-02-01T00:00:00Z",
 "end":"2026-02-02T00:00:00Z"}
@@ -254,6 +263,35 @@ def _validate_question_scope(question: str) -> None:
     if USER_PATTERN.search(question) is None and not population_scope:
         raise AmbiguousQuestionError(
             "question must include an explicit user ID or population scope"
+        )
+    daily_grouping = DAILY_GROUPING_PATTERN.search(question) is not None
+    activity_state_grouping = (
+        ACTIVITY_STATE_GROUPING_PATTERN.search(question) is not None
+    )
+    if UNSUPPORTED_GROUPING_PATTERN.search(question):
+        raise UnsupportedOperationError(
+            "question requests an unsupported grouping dimension"
+        )
+    if daily_grouping and activity_state_grouping:
+        raise UnsupportedOperationError(
+            "combining daily and activity-state grouping is not supported"
+        )
+    if (
+        population_scope
+        and AVERAGE_INTENT_PATTERN.search(question)
+        and not daily_grouping
+    ):
+        raise UnsupportedOperationError(
+            "population averages require explicit daily grouping"
+        )
+    if (
+        USER_PATTERN.search(question)
+        and "rest" in normalised
+        and AVERAGE_INTENT_PATTERN.search(question)
+        and not daily_grouping
+    ):
+        raise UnsupportedOperationError(
+            "resting averages require explicit daily grouping"
         )
 
 
@@ -392,6 +430,7 @@ def interpret_model_plan(
             "rest" not in normalised
             or AVERAGE_INTENT_PATTERN.search(question) is None
             or DAILY_GROUPING_PATTERN.search(question) is None
+            or ACTIVITY_STATE_GROUPING_PATTERN.search(question) is not None
         )
     ):
         raise UnsupportedOperationError(
@@ -404,6 +443,7 @@ def interpret_model_plan(
             "activity" not in normalised
             or ACTIVITY_COMPARISON_PATTERN.search(question) is None
             or AVERAGE_INTENT_PATTERN.search(question) is None
+            or DAILY_GROUPING_PATTERN.search(question) is not None
         )
     ):
         raise UnsupportedOperationError(
@@ -416,9 +456,11 @@ def interpret_model_plan(
             for phrase in ("all users", "across users", "population")
         )
         or AVERAGE_INTENT_PATTERN.search(question) is None
+        or DAILY_GROUPING_PATTERN.search(question) is None
+        or ACTIVITY_STATE_GROUPING_PATTERN.search(question) is not None
     ):
         raise UnsupportedOperationError(
-            "population_daily_average requires an explicit population average"
+            "population_daily_average requires an explicit daily population average"
         )
 
     return validate_query(

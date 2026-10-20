@@ -258,19 +258,19 @@ normally returns `rows: []` once that week no longer overlaps the snapshot. The
 response exposes the resolved bounds, request reference time, and time zone; it
 never shifts `last week` back to the data window merely to produce rows.
 
-Run the eight-case evaluation manifest:
+Run the evaluation manifest:
 
 ```bash
 python3 scripts/evaluate_natural_language.py
 ```
 
-Eleven live endpoint cases cover the three supported shapes, a real
-request-time relative-date question, ambiguity, unsupported metrics, maximum,
-minimum, median, count-only intent, and medical advice. The same explicit
-manifest includes invalid model output and model unavailability; those two
-fault-injection cases run in isolated tests. Further isolated checks cover
-fractional seconds, conflicting date expressions, missing grouping intent,
-malformed JSON, and invented users and dates.
+Fourteen live endpoint cases cover the three supported shapes, a real
+request-time relative-date question, ambiguity, unsupported metrics,
+aggregations, missing or conflicting grouping intent, an unsupported hourly
+dimension, and medical advice. The same explicit manifest includes invalid
+model output and model unavailability; those two fault-injection cases run in
+isolated tests. Further isolated checks cover fractional seconds, conflicting
+date expressions, malformed JSON, and invented users and dates.
 
 ## Tests
 
@@ -291,7 +291,7 @@ python3 -m venv .venv
 docker rm --force health-data-test-postgres
 ```
 
-The updated run passed 49 tests in 11.818 seconds. Hand-calculated fixtures check
+The updated run passed 49 tests in 12.541 seconds. Hand-calculated fixtures check
 all three operations. The final empty-state Compose flow is reproducible with:
 
 ```bash
@@ -304,16 +304,16 @@ replay leaves the row count unchanged.
 
 ## Measured verification
 
-The updated empty-persisted-state run completed in 144 seconds on ARM64 with
+The updated empty-persisted-state run completed in 208 seconds on ARM64 with
 cached image layers but empty PostgreSQL and Ollama volumes. It downloaded the
 model, generated and stored 271,620 observations, returned checked structured
 and natural-language responses, rejected an ambiguous question with HTTP 422,
 and replayed with zero inserts. The updated live endpoint evaluation passed
-11/11.
+14/14.
 
 The exact responses, environment, corrected failures, test evidence, and
 measurement boundary are in
-[`docs/verification.md`](docs/verification.md). In particular, 144 seconds is
+[`docs/verification.md`](docs/verification.md). In particular, 208 seconds is
 not claimed as a no-cache fresh-VM time.
 
 ## Decisions and tradeoffs

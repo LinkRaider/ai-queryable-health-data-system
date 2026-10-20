@@ -25,7 +25,7 @@ both query routes, submitted a rejected question, and replayed bootstrap.
 
 Observed:
 
-- Time from starting Compose until the API health check passed: **144 seconds**
+- Time from starting Compose until the API health check passed: **208 seconds**
 - Generated and stored observations: **271,620**
 - Users: **50**
 - History: `2026-01-05T00:00:00Z` through `2026-01-12T00:00:00Z`
@@ -36,11 +36,11 @@ Observed:
 - Bootstrap: exited 0 after 272 committed batches
 - FastAPI: healthy on `127.0.0.1:8000`
 
-The 144-second measurement used empty persistent volumes but retained Docker's
+The 208-second measurement used empty persistent volumes but retained Docker's
 previously downloaded image layers. It includes rebuilding the application
 image, downloading the model into an empty Ollama volume, generation,
 ingestion, and API readiness. It is not presented as a no-cache, new-VM
-measurement. Earlier empty-volume runs took 99, 149, 150, 158, 236, and 450
+measurement. Earlier empty-volume runs took 99, 144, 149, 150, 158, 236, and 450
 seconds, and the first Ollama image/model setup earlier in development took
 1,881.738 seconds on the same network, demonstrating the effect of network and
 registry caching.
@@ -126,7 +126,7 @@ Command:
 python3 scripts/evaluate_natural_language.py
 ```
 
-Observed on the rebuilt stack: **11/11 live endpoint cases passed**. The manifest also
+Observed on the rebuilt stack: **14/14 live endpoint cases passed**. The manifest also
 contains invalid model output and model unavailability as deterministic
 fault-injection cases covered by the isolated suite.
 
@@ -134,7 +134,7 @@ fault-injection cases covered by the isolated suite.
   user scope, and ranges.
 - The `last week` question used the real request time, exposed the previous ISO
   week `2026-10-12T00:00:00Z` through `2026-10-19T00:00:00Z` in UTC from
-  request reference `2026-10-20T14:41:20.490534Z`, and returned an empty result
+  request reference `2026-10-20T14:57:10.972549Z`, and returned an empty result
   because it did not overlap the January snapshot.
 - The evaluator derives whether rows are expected from overlap between the
   resolved week and the fixed snapshot; it does not always require an empty
@@ -142,6 +142,9 @@ fault-injection cases covered by the isolated suite.
 - The ambiguous question returned HTTP 422 `ambiguous_question`.
 - The step-count question returned HTTP 422 `unsupported_metric`.
 - Maximum, minimum, median, and count-only questions returned HTTP 422
+  `unsupported_operation` before model use.
+- A population average without daily grouping, an activity-state comparison
+  with daily grouping, and an hourly grouping request returned HTTP 422
   `unsupported_operation` before model use.
 - The medical-advice question returned HTTP 422 `unsupported_question` before
   model use.
@@ -165,7 +168,7 @@ Command:
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Observed on the updated worktree: **49 tests passed in 11.818 seconds**.
+Observed on the updated worktree: **49 tests passed in 12.541 seconds**.
 Coverage includes:
 
 - fixed-seed payload and ID reproducibility;
@@ -179,7 +182,7 @@ Coverage includes:
 - empty, invalid timestamp, unsupported metric/operation, unknown user,
   excessive range, oversized response, and database-unavailable behavior;
 - structured endpoint schema excluding arbitrary SQL;
-- eleven live endpoint cases and two isolated fault-injection cases;
+- fourteen live endpoint cases and two isolated fault-injection cases;
 - fractional-second timestamps, conflicting temporal expressions, unsupported
   analytical intent, medical advice, and missing daily grouping;
 - invalid JSON, extra SQL/model fields, invented user/range, and unavailable
@@ -227,7 +230,7 @@ No failure occurred in the successful final empty-persisted-state retry.
 ## Not verified
 
 - A brand-new VM with no Docker image cache was not available. Compose image
-  references, builds, and model preparation were exercised, but the 144-second
+  references, builds, and model preparation were exercised, but the 208-second
   timing must not be extrapolated to an uncached network.
 - AMD64 execution was not run; verification used ARM64.
 - Synthetic patterns were reviewed for demo plausibility. They were not
