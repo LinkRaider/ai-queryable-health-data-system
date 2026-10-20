@@ -131,8 +131,9 @@ not an invented zero.
   Population aggregation rejects a user filter.
 - Responses are capped at 1,000 rows. The query fetches at most 1,001 rows and
   returns a documented HTTP 413 error instead of truncating silently.
-- Malformed input, unsupported metrics/dimensions, ambiguous natural language,
-  and invalid model output return a structured 422 error.
+- Malformed input, unsupported metrics/dimensions/aggregations, medical-advice
+  requests, ambiguous natural language, and invalid model output return a
+  structured 422 error.
 - Model unavailability or timeout returns a structured 503 error.
 - Database unavailability returns a structured 503 error without exposing
   credentials or internal SQL.
@@ -141,15 +142,18 @@ not an invented zero.
 For natural language, the response includes the validated interpreted request
 and temporal interpretation beside the same result shape used by the
 structured endpoint. Questions may contain either two explicit offset-aware
-timestamps or `last week`. The latter is resolved by application code at
-request time as the previous ISO week in time zone `UTC`; the model receives
-the resolved bounds and cannot choose them. If that real relative range does
-not overlap the fixed historical snapshot, the valid result is empty. The
+RFC 3339 timestamps, with optional fractional seconds, or `last week`. The
+latter is resolved by application code at request time as the previous ISO
+week in time zone `UTC`; the model receives the resolved bounds and cannot
+choose them. Other relative expressions, and relative expressions mixed with
+explicit timestamps, are rejected. If the real `last week` range does not
+overlap the fixed historical snapshot, the valid result is empty. The
 application never shifts the range merely to find data. Unsupported metrics,
-missing users, unsupported or conflicting date expressions, invalid JSON,
-extra fields, and out-of-bounds plans are rejected. First-person identity is
-rejected because authentication is not implemented. The application never
-substitutes another metric, user, range, or operation.
+aggregations, grouping intent, medical advice, missing users, conflicting date
+expressions, invalid JSON, extra fields, and out-of-bounds plans are rejected.
+First-person identity is rejected because authentication is not implemented.
+The application validates lexical operation cues after planning and never
+substitutes another metric, user, range, aggregation, grouping, or operation.
 
 ## Durable ingestion and recovery
 
@@ -179,7 +183,9 @@ and values with the uninterrupted baseline. This directly tests restart from a
 durable post-commit checkpoint. It does not send a signal inside an open
 transaction; rollback before commit remains a PostgreSQL atomicity guarantee
 supported by the transaction boundary in the code rather than direct
-interruption evidence.
+interruption evidence. The harness checks that bootstrap remains running,
+pauses between checkpoint reads, and emits bootstrap logs if a 120-second
+deadline expires.
 
 ## Acceptance criteria
 
@@ -215,8 +221,8 @@ interruption evidence.
   its structured plan through the same path, and return that interpretation,
   including request-time application-resolved relative-date context.
 - An explicit evaluation set covers all three supported question shapes,
-  ambiguity, unsupported metrics, invalid model output, and model
-  unavailability.
+  ambiguity, unsupported metrics, unsupported aggregations, medical advice,
+  invalid model output, and model unavailability.
 - Clean-start verification exercises health, one structured query, one
   supported natural-language query, one rejected natural-language query, and
   records the observed responses.

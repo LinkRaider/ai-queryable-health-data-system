@@ -131,7 +131,9 @@ these atomicity guarantees:
 - primary-key and natural-key constraints independently prevent duplicates.
 
 The actual recovery harness tests one narrower case: it sends `SIGKILL` during
-a post-commit delay after a known durable checkpoint:
+a post-commit delay after a known durable checkpoint. Its polling loop checks
+container state, sleeps between reads, and fails with bootstrap logs after a
+120-second deadline instead of waiting indefinitely:
 
 ```bash
 ./scripts/test_interrupted_ingestion.sh
@@ -140,8 +142,8 @@ a post-commit delay after a known durable checkpoint:
 It does not empirically kill an open transaction; rollback of an uncommitted
 transaction is a PostgreSQL guarantee supported by the transaction boundary in
 the code, not a claim established by this harness. The latest container run
-stopped at batch 5 with exactly 5,000 durable events. Restart inserted the
-remaining 266,620. The recovered and uninterrupted databases both contained
+stopped at batch 6 with exactly 6,000 durable events. Restart inserted the
+remaining 265,620. The recovered and uninterrupted databases both contained
 271,620 events with digest
 `2791d4a9a5996490ff6191256d36ca5a`. Full evidence is in
 [`docs/interruption-verification.md`](docs/interruption-verification.md).
@@ -219,14 +221,16 @@ structured-query path rather than a third claimed depth area.
 Ollama receives a question and returns only a candidate JSON plan for the three
 operations. The application then:
 
-1. accepts either two offset-aware timestamps or the explicit phrase `last
-   week`;
+1. accepts either two offset-aware RFC 3339 timestamps, including fractional
+   seconds, or the explicit phrase `last week`;
 2. resolves `last week` at request time to the previous ISO week in application
    time zone `UTC`;
-3. rejects missing user identity, unsupported metrics, and instruction-like
-   input before model use;
+3. rejects missing user identity, unsupported metrics, unsupported
+   aggregations, medical-advice requests, unsupported relative dates, and
+   instruction-like input;
 4. validates the model response with a strict, extra-field-forbidden schema;
-5. proves that user and resolved timestamps match application-owned context;
+5. proves that user, resolved timestamps, aggregation, grouping, and operation
+   cues match application-owned context;
 6. applies the same structured-query validation and limits;
 7. builds parameterised SQL from application-owned statements.
 
@@ -246,7 +250,9 @@ curl --fail --request POST \
   }'
 ```
 
-The main demo uses explicit dates because the dataset is a January 2026
+Only `last week` is supported as relative shorthand; expressions such as
+`today`, `last month`, or `past 30 days` are rejected, including when mixed
+with explicit timestamps. The main demo uses explicit dates because the dataset is a January 2026
 snapshot. A `last week` request is relative to the real request time and
 normally returns `rows: []` once that week no longer overlaps the snapshot. The
 response exposes the resolved bounds, request reference time, and time zone; it
@@ -258,12 +264,13 @@ Run the eight-case evaluation manifest:
 python3 scripts/evaluate_natural_language.py
 ```
 
-Six live cases cover the three supported shapes, a real request-time
-relative-date question with an empty result, an ambiguous question, and an
-unsupported metric. The same explicit manifest includes invalid model output
-and model unavailability; those two fault-injection cases run in isolated
-tests. Further isolated checks cover malformed JSON and invented users and
-dates.
+Eleven live endpoint cases cover the three supported shapes, a real
+request-time relative-date question, ambiguity, unsupported metrics, maximum,
+minimum, median, count-only intent, and medical advice. The same explicit
+manifest includes invalid model output and model unavailability; those two
+fault-injection cases run in isolated tests. Further isolated checks cover
+fractional seconds, conflicting date expressions, missing grouping intent,
+malformed JSON, and invented users and dates.
 
 ## Tests
 
@@ -284,7 +291,7 @@ python3 -m venv .venv
 docker rm --force health-data-test-postgres
 ```
 
-The updated run passed 45 tests in 11.864 seconds. Hand-calculated fixtures check
+The updated run passed 49 tests in 11.818 seconds. Hand-calculated fixtures check
 all three operations. The final empty-state Compose flow is reproducible with:
 
 ```bash
@@ -297,15 +304,16 @@ replay leaves the row count unchanged.
 
 ## Measured verification
 
-The updated empty-persisted-state run completed in 158 seconds on ARM64 with
+The updated empty-persisted-state run completed in 144 seconds on ARM64 with
 cached image layers but empty PostgreSQL and Ollama volumes. It downloaded the
 model, generated and stored 271,620 observations, returned checked structured
 and natural-language responses, rejected an ambiguous question with HTTP 422,
-and replayed with zero inserts. The updated live model evaluation passed 6/6.
+and replayed with zero inserts. The updated live endpoint evaluation passed
+11/11.
 
 The exact responses, environment, corrected failures, test evidence, and
 measurement boundary are in
-[`docs/verification.md`](docs/verification.md). In particular, 158 seconds is
+[`docs/verification.md`](docs/verification.md). In particular, 144 seconds is
 not claimed as a no-cache fresh-VM time.
 
 ## Decisions and tradeoffs

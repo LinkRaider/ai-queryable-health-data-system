@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from health_data.query import QueryOperation, StructuredQuery, validate_query
 
 TIMESTAMP_PATTERN = re.compile(
-    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})"
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})"
 )
 USER_PATTERN = re.compile(r"\buser-[0-9]{4}\b")
 UNSUPPORTED_METRIC_TERMS = (
@@ -35,6 +35,35 @@ PROMPT_INJECTION_TERMS = (
     "select *",
 )
 RELATIVE_LAST_WEEK_PATTERN = re.compile(r"\b(?:last|previous) week\b", re.IGNORECASE)
+UNSUPPORTED_RELATIVE_DATE_PATTERN = re.compile(
+    r"\b(?:today|yesterday|tomorrow|this week|current week|next week|"
+    r"(?:this|current|last|previous|next) "
+    r"(?:day|month|year|weekend|monday|tuesday|wednesday|thursday|friday|"
+    r"saturday|sunday)|"
+    r"(?:past|last|next) \d+ (?:hours?|days?|weeks?|months?|years?)|"
+    r"\d+ (?:hours?|days?|weeks?|months?|years?) ago)\b",
+    re.IGNORECASE,
+)
+UNSUPPORTED_AGGREGATION_PATTERN = re.compile(
+    r"\b(?:max(?:imum)?|min(?:imum)?|median|percentile|"
+    r"p\d{2}|sum|highest|lowest|standard deviation|how many)\b",
+    re.IGNORECASE,
+)
+MEDICAL_ADVICE_PATTERN = re.compile(
+    r"\b(?:diagnos(?:e|is)|medical advice|treatment|medication|"
+    r"should i|is (?:this|my|user-[0-9]{4}'?s) (?:heart rate )?"
+    r"(?:healthy|normal|dangerous))\b",
+    re.IGNORECASE,
+)
+AVERAGE_INTENT_PATTERN = re.compile(r"\b(?:average|mean)\b", re.IGNORECASE)
+DAILY_GROUPING_PATTERN = re.compile(
+    r"\b(?:each day|per day|daily|by day)\b",
+    re.IGNORECASE,
+)
+ACTIVITY_COMPARISON_PATTERN = re.compile(
+    r"\b(?:compare|comparison|across|by)\b",
+    re.IGNORECASE,
+)
 DEFAULT_RELATIVE_DATE_TIMEZONE = "UTC"
 
 
@@ -52,6 +81,14 @@ class AmbiguousQuestionError(NaturalLanguageError):
 
 class UnsupportedMetricError(NaturalLanguageError):
     code = "unsupported_metric"
+
+
+class UnsupportedOperationError(NaturalLanguageError):
+    code = "unsupported_operation"
+
+
+class UnsupportedQuestionError(NaturalLanguageError):
+    code = "unsupported_question"
 
 
 class InvalidModelOutputError(NaturalLanguageError):
@@ -115,7 +152,7 @@ Supported operation mapping:
 The only metric is heart_rate. Do not infer missing users or timestamps.
 
 Examples:
-Question: Compare user-0042's heart rate across activity states from
+Question: Compare user-0042's average heart rate across activity states from
 2026-02-01T00:00:00Z to 2026-02-02T00:00:00Z.
 Output: {"operation":"activity_state_comparison","user_id":"user-0042",
 "metric":"heart_rate","start":"2026-02-01T00:00:00Z",
@@ -198,6 +235,14 @@ def _validate_question_scope(question: str) -> None:
         raise UnsupportedMetricError("question mentions an unsupported metric")
     if any(term in normalised for term in PROMPT_INJECTION_TERMS):
         raise AmbiguousQuestionError("question contains unsupported instructions")
+    if MEDICAL_ADVICE_PATTERN.search(question):
+        raise UnsupportedQuestionError(
+            "medical advice and clinical interpretation are not supported"
+        )
+    if UNSUPPORTED_AGGREGATION_PATTERN.search(question):
+        raise UnsupportedOperationError(
+            "question requests an unsupported analytical operation"
+        )
     if re.search(r"\b(?:my|mine)\b", normalised) and not USER_PATTERN.search(question):
         raise AmbiguousQuestionError(
             "first-person questions require an explicit user ID because authentication "
@@ -229,6 +274,12 @@ def resolve_temporal_expression(
 
     matches = TIMESTAMP_PATTERN.findall(question)
     asks_for_last_week = RELATIVE_LAST_WEEK_PATTERN.search(question) is not None
+    unsupported_relative_date = UNSUPPORTED_RELATIVE_DATE_PATTERN.search(question)
+    if unsupported_relative_date is not None:
+        raise AmbiguousQuestionError(
+            "question contains an unsupported relative date expression: "
+            f"{unsupported_relative_date.group(0)}"
+        )
     if asks_for_last_week and matches:
         raise AmbiguousQuestionError(
             "question cannot combine last week with an explicit timestamp range"
@@ -337,23 +388,37 @@ def interpret_model_plan(
     normalised = question.lower()
     if (
         plan.operation is QueryOperation.DAILY_USER_AVERAGE
-        and "rest" not in normalised
+        and (
+            "rest" not in normalised
+            or AVERAGE_INTENT_PATTERN.search(question) is None
+            or DAILY_GROUPING_PATTERN.search(question) is None
+        )
     ):
-        raise AmbiguousQuestionError(
-            "daily_user_average requires an explicit resting-heart-rate question"
+        raise UnsupportedOperationError(
+            "daily_user_average requires an average resting-heart-rate question "
+            "with daily grouping"
         )
     if (
         plan.operation is QueryOperation.ACTIVITY_STATE_COMPARISON
-        and "activity" not in normalised
-    ):
-        raise AmbiguousQuestionError(
-            "activity_state_comparison requires explicit activity-state wording"
+        and (
+            "activity" not in normalised
+            or ACTIVITY_COMPARISON_PATTERN.search(question) is None
+            or AVERAGE_INTENT_PATTERN.search(question) is None
         )
-    if plan.operation is QueryOperation.POPULATION_DAILY_AVERAGE and not any(
-        phrase in normalised for phrase in ("all users", "across users", "population")
     ):
-        raise AmbiguousQuestionError(
-            "population_daily_average requires explicit population wording"
+        raise UnsupportedOperationError(
+            "activity_state_comparison requires an explicit average comparison "
+            "across activity states"
+        )
+    if plan.operation is QueryOperation.POPULATION_DAILY_AVERAGE and (
+        not any(
+            phrase in normalised
+            for phrase in ("all users", "across users", "population")
+        )
+        or AVERAGE_INTENT_PATTERN.search(question) is None
+    ):
+        raise UnsupportedOperationError(
+            "population_daily_average requires an explicit population average"
         )
 
     return validate_query(

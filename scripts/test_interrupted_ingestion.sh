@@ -3,7 +3,8 @@ set -euo pipefail
 
 baseline_project="ai-health-baseline-test"
 recovery_project="ai-health-recovery-test"
-target_checkpoint=5
+target_checkpoint="${HEALTH_DATA_TEST_TARGET_CHECKPOINT:-5}"
+checkpoint_timeout_seconds="${HEALTH_DATA_TEST_CHECKPOINT_TIMEOUT_SECONDS:-120}"
 
 compose() {
   local project="$1"
@@ -60,12 +61,30 @@ compose "$recovery_project" up --detach --wait postgres >/dev/null
 compose_recovery up --detach bootstrap >/dev/null
 
 checkpoint=0
+deadline=$((SECONDS + checkpoint_timeout_seconds))
+bootstrap_container="$(compose_recovery ps --quiet bootstrap)"
 while (( checkpoint < target_checkpoint )); do
+  bootstrap_status="$(
+    docker inspect --format '{{.State.Status}}' "$bootstrap_container"
+  )"
+  if [[ "$bootstrap_status" != "running" ]]; then
+    printf 'Bootstrap stopped before checkpoint %s; status=%s\n' \
+      "$target_checkpoint" "$bootstrap_status" >&2
+    compose_recovery logs --no-color bootstrap >&2
+    exit 1
+  fi
   checkpoint="$(
     database_scalar "$recovery_project" \
       "SELECT COALESCE(max(next_batch_index), 0) FROM ingestion_runs;" \
       2>/dev/null || printf '0'
   )"
+  if (( SECONDS >= deadline )); then
+    printf 'Timed out after %s seconds waiting for checkpoint %s; observed=%s\n' \
+      "$checkpoint_timeout_seconds" "$target_checkpoint" "$checkpoint" >&2
+    compose_recovery logs --no-color bootstrap >&2
+    exit 1
+  fi
+  sleep 0.05
 done
 
 compose_recovery kill --signal SIGKILL bootstrap >/dev/null
