@@ -12,6 +12,18 @@
     }
   },
   {
+    "name": "daily resting average last week",
+    "category": "supported",
+    "question": "What was user-0001's average resting heart rate last week?",
+    "plan": {
+      "operation": "daily_user_average",
+      "user_id": "user-0001",
+      "metric": "heart_rate",
+      "start": "2026-01-05T00:00:00Z",
+      "end": "2026-01-12T00:00:00Z"
+    }
+  },
+  {
     "name": "activity comparison",
     "category": "supported",
     "question": "Compare user-0001's heart rate across activity states from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z.",

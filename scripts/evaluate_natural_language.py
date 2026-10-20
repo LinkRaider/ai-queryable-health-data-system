@@ -58,6 +58,10 @@ def main() -> None:
                 == case["plan"]["operation"]
                 and payload.get("interpreted_query", {}).get("user_id")
                 == case["plan"]["user_id"]
+                and payload.get("interpreted_query", {}).get("start")
+                == case["plan"]["start"]
+                and payload.get("interpreted_query", {}).get("end")
+                == case["plan"]["end"]
             )
             observed = payload.get("interpreted_query")
         else:

@@ -197,38 +197,44 @@ This is the second area of deliberate depth.
 Ollama receives a question and returns only a candidate JSON plan for the three
 operations. The application then:
 
-1. requires exactly two offset-aware timestamps and explicit heart-rate scope;
-2. rejects unsupported metrics and instruction-like input before model use;
-3. validates the model response with a strict, extra-field-forbidden schema;
-4. proves that user and timestamps were copied from the question;
-5. applies the same structured-query validation and limits;
-6. builds parameterised SQL from application-owned statements.
+1. accepts either two offset-aware timestamps or the explicit phrase `last
+   week`;
+2. resolves `last week` to the previous ISO week using reference
+   `2026-01-12T00:00:00Z` and application time zone `UTC`;
+3. rejects missing user identity, unsupported metrics, and instruction-like
+   input before model use;
+4. validates the model response with a strict, extra-field-forbidden schema;
+5. proves that user and resolved timestamps match application-owned context;
+6. applies the same structured-query validation and limits;
+7. builds parameterised SQL from application-owned statements.
 
 Model output is never treated as SQL and SQL fields are rejected. Missing or
 ambiguous scope is rejected instead of inferred. Model unavailability returns
-HTTP 503. Every successful response includes `interpreted_query` beside the
-result.
+HTTP 503. Every successful response includes `interpreted_query` and
+`temporal_interpretation`, including the resolved range, reference time, and
+time zone, beside the result. First-person questions such as “my heart rate”
+remain rejected because authentication does not provide a user identity.
 
 ```bash
 curl --fail --request POST \
   http://127.0.0.1:8000/v1/query/natural-language \
   --header 'Content-Type: application/json' \
   --data '{
-    "question": "What was user-0001'\''s average resting heart rate each day from 2026-01-05T00:00:00Z to 2026-01-12T00:00:00Z?"
+    "question": "What was user-0001'\''s average resting heart rate last week?"
   }'
 ```
 
-Run the seven-case evaluation manifest:
+Run the eight-case evaluation manifest:
 
 ```bash
 python3 scripts/evaluate_natural_language.py
 ```
 
-Five live cases cover the three supported shapes, an ambiguous question, and
-an unsupported metric. The same explicit manifest includes invalid model
-output and model unavailability; those two fault-injection cases run in
-isolated tests. Further isolated checks cover malformed JSON and invented users
-and dates.
+Six live cases cover the three supported shapes, the relative-date question,
+an ambiguous question, and an unsupported metric. The same explicit manifest
+includes invalid model output and model unavailability; those two
+fault-injection cases run in isolated tests. Further isolated checks cover
+malformed JSON and invented users and dates.
 
 ## Tests
 
@@ -249,7 +255,7 @@ python3 -m venv .venv
 docker rm --force health-data-test-postgres
 ```
 
-The final run passed 41 tests in 11.334 seconds. Hand-calculated fixtures check
+The updated run passed 42 tests in 15.673 seconds. Hand-calculated fixtures check
 all three operations. The final empty-state Compose flow is reproducible with:
 
 ```bash
@@ -262,15 +268,15 @@ replay leaves the row count unchanged.
 
 ## Measured verification
 
-The final empty-persisted-state run completed in 149 seconds on ARM64 with
+The updated empty-persisted-state run completed in 99 seconds on ARM64 with
 cached image layers but empty PostgreSQL and Ollama volumes. It downloaded the
 model, generated and stored 271,620 observations, returned checked structured
 and natural-language responses, rejected an ambiguous question with HTTP 422,
-and replayed with zero inserts. The live model evaluation passed 5/5.
+and replayed with zero inserts. The updated live model evaluation passed 6/6.
 
 The exact responses, environment, corrected failures, test evidence, and
 measurement boundary are in
-[`docs/verification.md`](docs/verification.md). In particular, 149 seconds is
+[`docs/verification.md`](docs/verification.md). In particular, 99 seconds is
 not claimed as a no-cache fresh-VM time.
 
 ## Decisions and tradeoffs
@@ -284,8 +290,9 @@ not claimed as a no-cache fresh-VM time.
   data would require retention, partitioning, compression, and load evidence.
 - UUIDv5 and a natural unique key spend extra index space to defend against
   both replay and identity-algorithm defects.
-- Strict natural-language grounding rejects useful shorthand such as "last
-  week." This is intentional: rejection is safer than invented dates.
+- Relative dates are intentionally narrow: `last week` means the previous ISO
+  week under a configured reference timestamp and time zone. Other shorthand
+  is rejected rather than guessed.
 - The 1.5B local model keeps data local and avoids paid credentials, but its
   image/model download dominates first startup and its interpretation quality
   is bounded by the explicit validator.
@@ -299,12 +306,10 @@ included a Python-version dependency mismatch, a packaged schema path, Compose
 image ownership, API dependency resolution, and two rejected local-model
 plans.
 
-Human judgment was retained for scope, synthetic-pattern plausibility, query
-and error boundaries, recovery evidence, and final claims. The human approved
-the schema/questions checkpoint, synthetic demo plausibility, persistence and
-query boundaries, and interruption evidence. Final submission approval is
-still pending. Clinical validity, production security, privacy policy, and
-operational readiness would not be accepted from generated output without
+Review checkpoints covered scope, synthetic-pattern plausibility, query and
+error boundaries, recovery evidence, and final claims. This repository records
+runtime evidence, not reviewer identities or approvals. Clinical validity,
+production security, privacy policy, and operational readiness still require
 domain-owner review and environment-specific evidence.
 
 ## Limitations

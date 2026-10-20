@@ -127,11 +127,22 @@ class InterpretedQueryResponse(BaseModel):
     row_limit: int
 
 
+class TemporalInterpretationResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["explicit_range", "previous_iso_week"]
+    start: datetime
+    end: datetime
+    timezone: str | None
+    reference_time: datetime | None
+
+
 class NaturalLanguageQueryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     question: str
     interpreted_query: InterpretedQueryResponse
+    temporal_interpretation: TemporalInterpretationResponse
     result: AnalyticalQueryResponse
 
 
@@ -162,6 +173,8 @@ DatabaseConnection = Annotated[Connection, Depends(database_connection)]
 def create_app(
     database_url: str | None = None,
     planner: QueryPlanner | None = None,
+    query_reference_time: datetime | None = None,
+    relative_date_timezone: str | None = None,
 ) -> FastAPI:
     settings = load_settings()
     app = FastAPI(
@@ -177,6 +190,12 @@ def create_app(
         settings.ollama_url,
         settings.ollama_model,
         settings.ollama_timeout_seconds,
+    )
+    app.state.query_reference_time = (
+        query_reference_time or settings.query_reference_time
+    )
+    app.state.relative_date_timezone = (
+        relative_date_timezone or settings.relative_date_timezone
     )
 
     @app.exception_handler(RequestValidationError)
@@ -290,10 +309,13 @@ def create_app(
         http_request: Request,
         connection: DatabaseConnection,
     ) -> dict[str, Any]:
-        interpreted = interpret_question(
+        interpretation = interpret_question(
             request.question,
             http_request.app.state.planner,
+            reference_time=http_request.app.state.query_reference_time,
+            timezone_name=http_request.app.state.relative_date_timezone,
         )
+        interpreted = interpretation.query
         result = execute_query(connection, interpreted)
         return {
             "question": request.question,
@@ -304,6 +326,17 @@ def create_app(
                 "start": interpreted.start.isoformat(),
                 "end": interpreted.end.isoformat(),
                 "row_limit": interpreted.row_limit,
+            },
+            "temporal_interpretation": {
+                "kind": interpretation.temporal.kind,
+                "start": interpretation.temporal.start.isoformat(),
+                "end": interpretation.temporal.end.isoformat(),
+                "timezone": interpretation.temporal.timezone_name,
+                "reference_time": (
+                    interpretation.temporal.reference_time.isoformat()
+                    if interpretation.temporal.reference_time is not None
+                    else None
+                ),
             },
             "result": result.as_dict(),
         }

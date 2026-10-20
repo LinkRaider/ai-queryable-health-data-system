@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, time, timedelta
 from typing import Any, Literal, Protocol
+from zoneinfo import ZoneInfo
 
 import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -32,6 +34,9 @@ PROMPT_INJECTION_TERMS = (
     "drop table",
     "select *",
 )
+RELATIVE_LAST_WEEK_PATTERN = re.compile(r"\b(?:last|previous) week\b", re.IGNORECASE)
+DEFAULT_QUERY_REFERENCE_TIME = datetime(2026, 1, 12, tzinfo=UTC)
+DEFAULT_RELATIVE_DATE_TIMEZONE = "UTC"
 
 
 class NaturalLanguageError(ValueError):
@@ -58,6 +63,21 @@ class ModelUnavailableError(NaturalLanguageError):
     code = "model_unavailable"
 
 
+@dataclass(frozen=True, slots=True)
+class TemporalInterpretation:
+    kind: Literal["explicit_range", "previous_iso_week"]
+    start: datetime
+    end: datetime
+    timezone_name: str | None
+    reference_time: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class NaturalLanguageInterpretation:
+    query: StructuredQuery
+    temporal: TemporalInterpretation
+
+
 class ModelPlan(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -82,6 +102,8 @@ Copy the user ID and both offset-aware timestamps exactly from the question.
 User IDs always include the literal "user-" prefix. Never shorten them.
 For a population query, user_id must be the JSON value null. Never emit a
 placeholder such as "<USER_ID>".
+When the application appends a "Resolved time range" line, copy those
+timestamps exactly. The application, not the model, resolves relative dates.
 
 Supported operation mapping:
 - daily_user_average: one user's RESTING heart-rate average grouped by local day.
@@ -164,19 +186,7 @@ class OllamaPlanner:
         return parsed
 
 
-def _parse_question_timestamps(question: str) -> tuple[datetime, datetime]:
-    matches = TIMESTAMP_PATTERN.findall(question)
-    if len(matches) != 2:
-        raise AmbiguousQuestionError(
-            "question must contain exactly two offset-aware RFC 3339 timestamps"
-        )
-    timestamps = tuple(
-        datetime.fromisoformat(value.replace("Z", "+00:00")) for value in matches
-    )
-    return timestamps[0], timestamps[1]
-
-
-def validate_question(question: str) -> tuple[datetime, datetime]:
+def _validate_question_scope(question: str) -> None:
     normalised = question.lower()
     if "heart rate" not in normalised and "heart-rate" not in normalised:
         raise UnsupportedMetricError(
@@ -186,14 +196,115 @@ def validate_question(question: str) -> tuple[datetime, datetime]:
         raise UnsupportedMetricError("question mentions an unsupported metric")
     if any(term in normalised for term in PROMPT_INJECTION_TERMS):
         raise AmbiguousQuestionError("question contains unsupported instructions")
-    return _parse_question_timestamps(question)
+    if re.search(r"\b(?:my|mine)\b", normalised) and not USER_PATTERN.search(question):
+        raise AmbiguousQuestionError(
+            "first-person questions require an explicit user ID because authentication "
+            "is not implemented"
+        )
+    population_scope = any(
+        phrase in normalised for phrase in ("all users", "across users", "population")
+    )
+    if USER_PATTERN.search(question) is None and not population_scope:
+        raise AmbiguousQuestionError(
+            "question must include an explicit user ID or population scope"
+        )
+
+
+def _render_timestamp(value: datetime) -> str:
+    rendered = value.isoformat(timespec="seconds")
+    return rendered.replace("+00:00", "Z")
+
+
+def resolve_temporal_expression(
+    question: str,
+    *,
+    reference_time: datetime = DEFAULT_QUERY_REFERENCE_TIME,
+    timezone_name: str = DEFAULT_RELATIVE_DATE_TIMEZONE,
+) -> TemporalInterpretation:
+    if reference_time.tzinfo is None or reference_time.utcoffset() is None:
+        raise ValueError("query reference time must be offset-aware")
+
+    matches = TIMESTAMP_PATTERN.findall(question)
+    asks_for_last_week = RELATIVE_LAST_WEEK_PATTERN.search(question) is not None
+    if asks_for_last_week and matches:
+        raise AmbiguousQuestionError(
+            "question cannot combine last week with an explicit timestamp range"
+        )
+    if len(matches) == 2:
+        timestamps = tuple(
+            datetime.fromisoformat(value.replace("Z", "+00:00")) for value in matches
+        )
+        return TemporalInterpretation(
+            kind="explicit_range",
+            start=timestamps[0],
+            end=timestamps[1],
+            timezone_name=None,
+            reference_time=None,
+        )
+    if matches:
+        raise AmbiguousQuestionError(
+            "question must contain exactly two offset-aware RFC 3339 timestamps"
+        )
+    if not asks_for_last_week:
+        raise AmbiguousQuestionError(
+            "question must contain an explicit timestamp range or the phrase last week"
+        )
+
+    try:
+        timezone = ZoneInfo(timezone_name)
+    except (KeyError, ValueError) as error:
+        raise ValueError(f"invalid relative-date timezone: {timezone_name}") from error
+    local_reference = reference_time.astimezone(timezone)
+    current_week_start_date = local_reference.date() - timedelta(
+        days=local_reference.weekday()
+    )
+    current_week_start = datetime.combine(
+        current_week_start_date,
+        time.min,
+        tzinfo=timezone,
+    )
+    previous_week_start = current_week_start - timedelta(days=7)
+    return TemporalInterpretation(
+        kind="previous_iso_week",
+        start=previous_week_start,
+        end=current_week_start,
+        timezone_name=timezone_name,
+        reference_time=reference_time,
+    )
+
+
+def _planner_question(
+    question: str,
+    temporal: TemporalInterpretation,
+) -> str:
+    if temporal.kind == "explicit_range":
+        return question
+    return (
+        f"{question}\nResolved time range: from "
+        f"{_render_timestamp(temporal.start)} to {_render_timestamp(temporal.end)}."
+    )
+
+
+def validate_question(
+    question: str,
+    *,
+    reference_time: datetime = DEFAULT_QUERY_REFERENCE_TIME,
+    timezone_name: str = DEFAULT_RELATIVE_DATE_TIMEZONE,
+) -> TemporalInterpretation:
+    _validate_question_scope(question)
+    return resolve_temporal_expression(
+        question,
+        reference_time=reference_time,
+        timezone_name=timezone_name,
+    )
 
 
 def interpret_model_plan(
     question: str,
     raw_plan: dict[str, Any],
+    temporal: TemporalInterpretation | None = None,
 ) -> StructuredQuery:
-    question_start, question_end = validate_question(question)
+    temporal = temporal or validate_question(question)
     try:
         plan = ModelPlan.model_validate(raw_plan)
     except ValidationError as error:
@@ -201,9 +312,9 @@ def interpret_model_plan(
             "the local model returned a plan outside the allowed schema"
         ) from error
 
-    if plan.start != question_start or plan.end != question_end:
+    if plan.start != temporal.start or plan.end != temporal.end:
         raise InvalidModelOutputError(
-            "the model plan timestamps were not copied from the question"
+            "the model plan timestamps do not match the application-resolved range"
         )
 
     mentioned_users = USER_PATTERN.findall(question)
@@ -253,6 +364,21 @@ def interpret_model_plan(
     )
 
 
-def interpret_question(question: str, planner: QueryPlanner) -> StructuredQuery:
-    validate_question(question)
-    return interpret_model_plan(question, planner.plan(question))
+def interpret_question(
+    question: str,
+    planner: QueryPlanner,
+    *,
+    reference_time: datetime = DEFAULT_QUERY_REFERENCE_TIME,
+    timezone_name: str = DEFAULT_RELATIVE_DATE_TIMEZONE,
+) -> NaturalLanguageInterpretation:
+    temporal = validate_question(
+        question,
+        reference_time=reference_time,
+        timezone_name=timezone_name,
+    )
+    query = interpret_model_plan(
+        question,
+        planner.plan(_planner_question(question, temporal)),
+        temporal,
+    )
+    return NaturalLanguageInterpretation(query=query, temporal=temporal)
