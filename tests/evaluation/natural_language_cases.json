@@ -33,7 +33,7 @@
   {
     "name": "population daily average",
     "category": "supported",
-    "question": "What was the population average heart rate across all users from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?",
+    "question": "What was the population average heart rate across all users each UTC day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?",
     "plan": {
       "operation": "population_daily_average",
       "user_id": null,
@@ -71,6 +71,21 @@
     "name": "unsupported count-only question",
     "category": "unsupported_operation",
     "question": "How many heart rate observations did user-0001 have from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+  },
+  {
+    "name": "population average missing daily grouping",
+    "category": "unsupported_operation",
+    "question": "What was the population average heart rate across all users from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+  },
+  {
+    "name": "activity comparison with unsupported daily grouping",
+    "category": "unsupported_operation",
+    "question": "Compare user-0001's average heart rate across activity states each day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z."
+  },
+  {
+    "name": "unsupported hourly grouping",
+    "category": "unsupported_operation",
+    "question": "What was user-0001's average resting heart rate hourly from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
   },
   {
     "name": "unsupported medical advice",

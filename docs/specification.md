@@ -152,8 +152,12 @@ application never shifts the range merely to find data. Unsupported metrics,
 aggregations, grouping intent, medical advice, missing users, conflicting date
 expressions, invalid JSON, extra fields, and out-of-bounds plans are rejected.
 First-person identity is rejected because authentication is not implemented.
-The application validates lexical operation cues after planning and never
-substitutes another metric, user, range, aggregation, grouping, or operation.
+The application requires daily wording for both daily operations, requires
+activity-state wording only for the state comparison, and rejects combined or
+unsupported dimensions such as hourly, daily-plus-state, device, or user
+grouping. It validates these lexical operation cues before and after planning
+and never substitutes another metric, user, range, aggregation, grouping, or
+operation.
 
 ## Durable ingestion and recovery
 
@@ -221,8 +225,9 @@ deadline expires.
   its structured plan through the same path, and return that interpretation,
   including request-time application-resolved relative-date context.
 - An explicit evaluation set covers all three supported question shapes,
-  ambiguity, unsupported metrics, unsupported aggregations, medical advice,
-  invalid model output, and model unavailability.
+  ambiguity, unsupported metrics, unsupported aggregations, missing,
+  conflicting, and unsupported grouping dimensions, medical advice, invalid
+  model output, and model unavailability.
 - Clean-start verification exercises health, one structured query, one
   supported natural-language query, one rejected natural-language query, and
   records the observed responses.
