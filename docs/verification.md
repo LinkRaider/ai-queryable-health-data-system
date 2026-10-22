@@ -132,9 +132,11 @@ Command:
 python3 scripts/evaluate_natural_language.py
 ```
 
-Observed on the rebuilt stack: **20/20 live endpoint cases passed**. The manifest also
-contains invalid model output and model unavailability as deterministic
-fault-injection cases covered by the isolated suite.
+Observed on the rebuilt stack: **20/20 live endpoint cases passed**. These were
+four supported questions that called the real Ollama model and 16 questions
+rejected by application validation before a model call. The manifest contains
+two additional cases—invalid model output and model unavailability—covered by
+deterministic isolated tests rather than live Ollama calls.
 
 - Three explicit-range questions produced the expected structured operations,
   user scope, and ranges.
@@ -162,6 +164,15 @@ fault-injection cases covered by the isolated suite.
 - A separate live question with `.500Z` bounds returned HTTP 200 and exposed
   normalized `.500000Z` bounds in both the interpreted query and temporal
   interpretation.
+
+The model client timeout is 30 seconds. Separate executions of this revision
+produced both first-request outcomes: one first inference exceeded that timeout
+and returned structured HTTP 503, while another returned HTTP 200 before the
+timeout; a later loaded-model request also succeeded. This records startup
+variability without attributing an exclusive cause to one host or execution
+environment. The 20/20 manifest result was measured with the model available
+and is not a guarantee that the first inference after startup completes within
+the timeout.
 
 The initial live evaluation passed 3/5. The 1.5B model shortened
 `user-0001` to `0001` in the activity plan and emitted a placeholder user for
@@ -198,7 +209,9 @@ Coverage includes:
 - empty, invalid timestamp, unsupported metric/operation, unknown user,
   excessive range, oversized response, and database-unavailable behavior;
 - structured endpoint schema excluding arbitrary SQL;
-- twenty live endpoint cases and two isolated fault-injection cases;
+- manifest-backed endpoint assertions for the 20 live-case definitions and two
+  isolated fault-injection cases, using controlled planners rather than real
+  Ollama calls;
 - fractional-second timestamps, conflicting temporal expressions, unsupported
   analytical intent, medical advice, and missing daily grouping;
 - invalid JSON, extra SQL/model fields, invented user/range, and unavailable

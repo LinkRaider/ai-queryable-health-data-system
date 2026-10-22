@@ -295,15 +295,18 @@ Run the evaluation manifest:
 python3 scripts/evaluate_natural_language.py
 ```
 
-Twenty live endpoint cases cover the three supported shapes, a real
-request-time relative-date question, ambiguity, unsupported metrics,
-aggregations, missing or conflicting grouping intent, an unsupported hourly
-dimension, incompatible state filters and grouping time zones, malformed user
-identity, invalid timestamps, and medical advice. The same explicit manifest
-includes invalid model output and model unavailability; those two
-fault-injection cases run in isolated tests. Further isolated checks cover
-fractional seconds, conflicting date expressions, malformed JSON, and invented
-users and dates.
+The manifest contains 22 cases. Its live run sends 20 endpoint requests: four
+supported questions reach the real Ollama model, while 16 ambiguous, invalid,
+or unsupported questions are rejected by application validation before a
+model call. The remaining two cases—invalid model output and model
+unavailability—are deterministic fault-injection tests and are not live
+Ollama calls. Further isolated checks cover fractional seconds, conflicting
+date expressions, malformed JSON, and invented users and dates.
+
+The model client has a 30-second timeout. The first inference after startup can
+exceed it and return HTTP 503; a later request with the model loaded can
+succeed. This is a startup limitation, not a result attributed exclusively to
+one host or execution environment.
 
 ## Tests
 
@@ -360,7 +363,7 @@ not claimed as a no-cache fresh-VM time.
 
 - A fixed window makes restart behavior reproducible; it does not look
   perpetually current.
-- Full JSONL replay over a broker or positional checkpoint keeps recovery
+- Full JSONL replay instead of a broker or positional checkpoint keeps recovery
   inspectable. The measured 18-second replay is acceptable for this dataset;
   materially larger sources require new measurements before keeping this
   choice.
@@ -386,6 +389,18 @@ are limited to commands recorded in `docs/verification.md`. Corrections
 included a Python-version dependency mismatch, a packaged schema path, Compose
 image ownership, API dependency resolution, and two rejected local-model
 plans.
+
+During review, I challenged recovery based on regenerating synthetic
+measurements and the checkpoint complexity supporting that path: real
+measurements cannot be reconstructed if they were never retained, and the
+brief did not require that mechanism. I chose a persisted JSONL source and
+full idempotent replay, keeping transactional batch ingestion and PostgreSQL
+without adding permanent services; implementation of that revision was
+delegated. I would not delegate blindly the definition of the problem, the
+failure model, or acceptance of recovery guarantees: those require human
+judgment about what can actually be recovered and what the evidence proves.
+Deterministic generation remains a reproducibility aid for tests, not a
+recovery mechanism for real-world measurements.
 
 Review checkpoints covered scope, synthetic-pattern plausibility, query and
 error boundaries, recovery evidence, and final claims. This repository records
@@ -420,4 +435,15 @@ domain-owner review and environment-specific evidence.
 
 ## If you had two more weeks, what would you build next?
 
-I would add authenticated tenant-scoped access, PostgreSQL range partitioning and retention, a connection pool, OpenTelemetry traces and query-cost metrics, property-based generator and recovery tests, an AMD64/no-cache CI acceptance run, signed image digests and a complete dependency lock, model-quality regression reporting over a larger adversarial corpus, and a reviewed privacy/threat model before expanding to another health metric.
+Before any public exposure, I would establish the security baseline with
+authentication, per-user authorization, TLS, rate limiting, and audit logging,
+then improve readiness and the reliability of the first model inference. I
+would expand the user population, historical window, and seed variation to
+measure actual limits, using those results and observed access patterns to
+decide whether PostgreSQL partitioning and retention, Parquet, or a lakehouse
+are justified. I would also explore continuous production ingestion and
+streaming, considering Kafka only if retained replay, backpressure, and
+independent consumers become concrete requirements; it is not needed for the
+current batch. Within two weeks I would prioritize validation and tested
+backup and restore paths rather than claim delivery of every proposal. These
+are proposed extensions, not features claimed by the current implementation.
