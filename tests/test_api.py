@@ -87,14 +87,12 @@ class StructuredQueryApiTests(unittest.TestCase):
         cls.connection.execute(
             """
             INSERT INTO ingestion_runs (
-                run_key,
+                source_key,
                 schema_version,
                 generator_version,
                 configuration,
                 status,
                 expected_event_count,
-                total_batches,
-                next_batch_index,
                 inserted_event_count,
                 completed_at
             )
@@ -105,8 +103,6 @@ class StructuredQueryApiTests(unittest.TestCase):
                 %s,
                 'complete',
                 3,
-                1,
-                1,
                 3,
                 now()
             )
@@ -149,11 +145,15 @@ class StructuredQueryApiTests(unittest.TestCase):
                     "day": "2026-01-05",
                     "mean_recorded_bpm": 70.0,
                     "observation_count": 2,
+                    "first_observed_at": "2026-01-05T01:00:00Z",
+                    "last_observed_at": "2026-01-05T02:00:00Z",
                 },
                 {
                     "day": "2026-01-06",
                     "mean_recorded_bpm": 70.0,
                     "observation_count": 1,
+                    "first_observed_at": "2026-01-06T01:00:00Z",
+                    "last_observed_at": "2026-01-06T01:00:00Z",
                 },
             ],
             response.json()["rows"],

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 from health_data.generator import GenerationConfig
 
@@ -13,6 +14,7 @@ from health_data.generator import GenerationConfig
 class Settings:
     database_url: str
     generation: GenerationConfig
+    source_path: Path
     batch_size: int
     batch_delay_seconds: float
     ollama_url: str
@@ -37,6 +39,12 @@ def load_settings() -> Settings:
             "postgresql://health_data:health_data@postgres:5432/health_data",
         ),
         generation=generation,
+        source_path=Path(
+            os.getenv(
+                "HEALTH_DATA_SOURCE_PATH",
+                "/var/lib/health-data-source/heart-rate-events.jsonl",
+            )
+        ),
         batch_size=int(os.getenv("HEALTH_DATA_BATCH_SIZE", "1000")),
         batch_delay_seconds=float(
             os.getenv("HEALTH_DATA_BATCH_DELAY_SECONDS", "0")

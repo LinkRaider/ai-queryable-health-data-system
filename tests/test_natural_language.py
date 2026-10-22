@@ -143,14 +143,12 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
         cls.connection.execute(
             """
             INSERT INTO ingestion_runs (
-                run_key,
+                source_key,
                 schema_version,
                 generator_version,
                 configuration,
                 status,
                 expected_event_count,
-                total_batches,
-                next_batch_index,
                 inserted_event_count,
                 completed_at
             )
@@ -161,8 +159,6 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
                 %s,
                 'complete',
                 4,
-                1,
-                1,
                 4,
                 now()
             )

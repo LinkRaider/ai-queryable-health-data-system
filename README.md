@@ -1,8 +1,9 @@
 # AI-Queryable Health Data System
 
 A small end-to-end system that generates a fixed, deterministic synthetic
-heart-rate snapshot for 50 users over seven days, ingests it directly into
-PostgreSQL, and exposes bounded structured and natural-language analytics.
+heart-rate snapshot for 50 users over seven days, atomically publishes it as
+JSONL, replays that persisted source into PostgreSQL, and exposes bounded
+structured and natural-language analytics.
 It is a reproducible historical demo, not a continuously updating or real-time
 health service.
 
@@ -27,7 +28,7 @@ docker compose up --build
 
 No model command, schema command, or data-loading command is required.
 Compose starts PostgreSQL and Ollama, downloads `qwen2.5:1.5b` through a
-one-shot model preparation service, generates and ingests the fixed dataset,
+one-shot model preparation service, publishes and ingests the fixed dataset,
 then starts FastAPI at <http://127.0.0.1:8000>. OpenAPI documentation is at
 <http://127.0.0.1:8000/docs>.
 
@@ -60,16 +61,18 @@ flowchart LR
     API --> Ollama[Ollama qwen2.5 1.5B]
     ModelInit[One-shot model init] --> Ollama
     Bootstrap[One-shot bootstrap] --> Generator[Deterministic generator]
-    Generator --> Bootstrap
-    Bootstrap --> PostgreSQL
+    Generator -->|temporary file + atomic rename| JSONL[(JSONL source volume)]
+    JSONL -->|full replay| Bootstrap
+    Bootstrap -->|idempotent batches| PostgreSQL
 ```
 
 Compose contains five purposeful services:
 
-- `postgres` stores user profiles, observations, constraints, indexes, and
-  durable ingestion progress.
-- `bootstrap` generates the fixed event sequence and writes retry-safe batches.
-  It exits only after all batches are durable.
+- `postgres` stores user profiles, observations, constraints, indexes, and the
+  identity and outcome of the one accepted source.
+- `bootstrap` atomically publishes the fixed event sequence to the source
+  volume when absent, then replays it in retry-safe batches. It exits only
+  after all source records have been checked against durable rows.
 - `ollama` hosts the small local interpretation model.
 - `model-init` downloads the pinned model when the model volume is empty and
   exits after preparation succeeds.
@@ -83,10 +86,6 @@ PostgreSQL is both storage and analytical engine because this volume and the
 three access patterns fit indexed relational aggregation.
 
 ## Data contract and synthetic patterns
-
-This is the first area of deliberate depth: deterministic generation with
-distinguishable profiles, state-dependent irregular sampling, and explicit
-device-off gaps.
 
 The full contract and acceptance criteria are in
 [`docs/specification.md`](docs/specification.md). Each v1 observation contains:
@@ -105,50 +104,69 @@ device-off tendency. State changes affect values and sampling cadence;
 deterministic jitter avoids clockwork intervals; device-off intervals emit no
 observations.
 
+Determinism makes the synthetic fixture reproducible for review and tests. It
+does not imply that missing measurements from real people can be regenerated.
+
 The observed sample contains 271,620 events. Representative profiles,
 state-level means, a full local-day timeline, and an explicit 74.7-minute
 no-reading gap are in
 [`docs/synthetic-sample.md`](docs/synthetic-sample.md).
 
-## Idempotent ingestion and recovery
+## Idempotent ingestion and recovery from persisted source
 
-This is the second area of deliberate depth.
+This is the first area of deliberate depth.
 
-The dataset run key hashes schema version, generator version, seed, fixed
-window, and population. PostgreSQL separately records the batch size, expected
-count, total batches, next batch, inserted count, and status. A restart with a
-different batch size is rejected because existing checkpoints depend on that
-size. The demo database accepts only one generation run key; another seed,
-window, population, or generator version requires an isolated database instead
-of mixing profiles or overlapping natural event keys. Event inserts and
-checkpoint advance commit in the same PostgreSQL transaction, which provides
-these atomicity guarantees:
+Bootstrap writes one event per JSONL line to a temporary file on the source
+volume, flushes it, and publishes it with an atomic rename only after generation
+finishes. A small sidecar records the generation configuration, line count,
+unique-event count, and source digest. A compatible published source is
+validated and reused without calling the event generator. An incompatible or
+corrupt published source fails explicitly; a lone file from an interrupted
+initial publication is not considered complete and may be regenerated.
 
-- termination before commit preserves neither the batch nor its checkpoint;
-- termination after commit preserves both;
-- restart regenerates the same ordered sequence and skips committed batches;
-- a completed replay inserts nothing;
-- primary-key and natural-key constraints independently prevent duplicates.
+Every ingestion attempt reads that JSONL from the beginning. There is no
+position checkpoint: the measured full replay is small enough that stable
+event identity and idempotent inserts are simpler. Each batch commits
+independently, so an interruption can leave earlier batches durable. On retry,
+those rows are verified and skipped while missing rows are inserted:
 
-The actual recovery harness tests one narrower case: it sends `SIGKILL` during
-a post-commit delay after a known durable checkpoint. Its polling loop checks
-container state, sleeps between reads, and fails with bootstrap logs after a
-120-second deadline instead of waiting indefinitely:
+- the same `event_id` and same content is accepted without another row;
+- the same `event_id` with different content is an explicit error;
+- a natural-key collision under another ID is an explicit error;
+- malformed JSONL reports its line number instead of being ignored;
+- file order is irrelevant because analytics use `observed_at`.
+
+The demo database accepts one source configuration. Another seed, window,
+population, generator version, or source content requires an isolated
+database; dataset migration and coexistence are outside scope.
+
+The recovery harness configures a post-commit delay, observes 6,000 durable
+rows, then sends `SIGKILL`. It then replays the same persisted file from line
+one:
 
 ```bash
 ./scripts/test_interrupted_ingestion.sh
 ```
 
-It does not empirically kill an open transaction; rollback of an uncommitted
-transaction is a PostgreSQL guarantee supported by the transaction boundary in
-the code, not a claim established by this harness. The latest container run
-stopped at batch 6 with exactly 6,000 durable events. Restart inserted the
-remaining 265,620. The recovered and uninterrupted databases both contained
-271,620 events with digest
-`2791d4a9a5996490ff6191256d36ca5a`. Full evidence is in
+This proves recovery with earlier batches already committed. Polling does not
+identify whether the process had opened its next transaction at the exact
+signal instant, so no claim is made about interruption inside or outside that
+next transaction. The latest run reused source
+digest `8a96006e1229c3fbb394603aa01581ac564879115fc1f4234c07a6375e1e7f09`,
+processed all 271,620 lines, and inserted the remaining 265,620 rows in 24
+seconds. Recovered and uninterrupted databases both contained 271,620 events
+with digest `2791d4a9a5996490ff6191256d36ca5a`. Full evidence is in
 [`docs/interruption-verification.md`](docs/interruption-verification.md).
 
+The named volume survives normal container replacement; it is not a backup,
+replica, or protection against deleting or losing the volume. Real
+measurements that were never persisted cannot be reconstructed by a
+deterministic generator.
+
 ## Analytical API
+
+This is the second area of deliberate depth: explicit semantics when sampling
+is irregular and data can be absent.
 
 Every range is half-open: `start <= observed_at < end`. Timestamps require an
 offset, ranges are limited to 31 days, and responses are limited to 1,000 rows.
@@ -163,11 +181,20 @@ make this explicit with `aggregation_basis: "recorded_observations"` and
 `mean_recorded_bpm`.
 
 - `daily_user_average`: mean of one user's recorded resting observations,
-  grouped by local day;
+  grouped by local day, with the first and last contributing timestamps;
 - `activity_state_comparison`: mean and count of one user's recorded
   observations by activity state;
 - `population_daily_average`: mean of all recorded observations, observation
-  count, and contributing-user count by UTC day.
+  count, contributing-user count, and first and last contributing timestamps
+  by UTC day.
+
+`observation_count`, `first_observed_at`, and `last_observed_at` describe only
+the readings that contributed after all filters. More readings do not
+necessarily mean better time coverage because cadence varies by state. The
+span from first to last reading does not prove there were no gaps between
+them. Missing groups stay absent: the API never invents a zero mean, and a day
+without rows is not a day observed at zero BPM. No coverage percentage is
+reported because the measurements alone provide no defensible denominator.
 
 SQL operation and grouping fragments are application-owned constants. Every
 request value is a bound parameter. No route accepts arbitrary SQL.
@@ -297,35 +324,46 @@ python3 -m venv .venv
 docker rm --force health-data-test-postgres
 ```
 
-The updated run passed 51 tests in 11.900 seconds. Hand-calculated fixtures check
-all three operations. The final empty-state Compose flow is reproducible with:
+The updated run passed 65 tests in 17.299 seconds. They include JSONL
+round-tripping and atomic publication, source reuse and incompatibility,
+duplicate/conflicting/out-of-order ingestion, post-commit retry, and
+hand-calculated answers for all three operations including contributing
+timestamp bounds. The empty- and preserved-state Compose flow is reproducible
+with:
 
 ```bash
 ./scripts/clean_start_e2e.sh
 ```
 
 That destructive test removes this Compose project's named volumes, starts the
-complete system, checks both endpoints and a rejection, then proves bootstrap
-replay leaves the row count unchanged.
+complete system, checks both endpoints and a rejection, measures a full replay,
+then restarts Compose with its volumes preserved and confirms the row count is
+unchanged.
 
 ## Measured verification
 
-The updated empty-persisted-state run completed in 286 seconds on ARM64 with
-cached image layers but empty PostgreSQL and Ollama volumes. It downloaded the
-model, generated and stored 271,620 observations, returned checked structured
-and natural-language responses, rejected an ambiguous question with HTTP 422,
-and replayed with zero inserts. The updated live endpoint evaluation passed
-20/20.
+The updated empty-persisted-state run completed in 67 seconds on ARM64 with
+cached image layers but empty PostgreSQL, source, and Ollama volumes. It
+downloaded the model, published and stored 271,620 observations, returned
+checked structured and natural-language responses, and rejected an ambiguous
+question with HTTP 422. A full 271,620-line replay took 18 seconds and inserted
+zero rows. A subsequent `docker compose down`/`up` with all volumes preserved
+was healthy in 23 seconds and retained 271,620 rows. The updated live endpoint
+evaluation passed 20/20.
 
 The exact responses, environment, corrected failures, test evidence, and
 measurement boundary are in
-[`docs/verification.md`](docs/verification.md). In particular, 286 seconds is
+[`docs/verification.md`](docs/verification.md). In particular, 67 seconds is
 not claimed as a no-cache fresh-VM time.
 
 ## Decisions and tradeoffs
 
 - A fixed window makes restart behavior reproducible; it does not look
   perpetually current.
+- Full JSONL replay over a broker or positional checkpoint keeps recovery
+  inspectable. The measured 18-second replay is acceptable for this dataset;
+  materially larger sources require new measurements before keeping this
+  choice.
 - One constrained heart-rate table provides stronger checks and clearer
   indexes than a generic entity-attribute-value schema; adding another metric
   requires a deliberate migration.
@@ -365,11 +403,15 @@ domain-owner review and environment-specific evidence.
   backup/restore automation, or production monitoring.
 - The synthetic generator models recognizable schedules and gaps, not
   physiology.
-- The data is a fixed historical snapshot. Normal restarts replay the same run
-  key and do not append current observations.
+- The data is a fixed historical snapshot. Normal restarts replay the same
+  source and do not append current observations.
+- The source named volume survives container restarts but is neither backed up
+  nor replicated. Deleting it removes the persisted event source.
 - Means weight recorded observations equally, so high-cadence states and users
   with more readings contribute more; no time weighting or equal-user
   weighting is claimed.
+- First/last timestamps bound contributing observations but do not prove
+  gap-free coverage. Missing days are omitted, never represented as zero BPM.
 - The API supports three intentionally narrow operations and one metric.
 - Image tags and Python direct dependencies are pinned, but image digests and
   the complete transitive Python dependency graph are not locked.

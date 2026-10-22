@@ -1,0 +1,4 @@
+volumes:
+  source-data:
+    external: true
+    name: ${HEALTH_DATA_SHARED_SOURCE_VOLUME}

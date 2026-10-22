@@ -9,19 +9,33 @@ from dataclasses import asdict
 from health_data.config import load_settings
 from health_data.db import apply_schema, connect, ingest
 from health_data.query import QueryOperation, StructuredQuery, execute_query
+from health_data.source import ensure_source
 
 
 def bootstrap() -> None:
     settings = load_settings()
+    source = ensure_source(settings.source_path, settings.generation)
     with connect(settings.database_url) as connection:
         apply_schema(connection)
         result = ingest(
             connection,
+            source,
             settings.generation,
             batch_size=settings.batch_size,
             batch_delay_seconds=settings.batch_delay_seconds,
         )
-    print(json.dumps({"event": "bootstrap_complete", **asdict(result)}, sort_keys=True))
+    print(
+        json.dumps(
+            {
+                "event": "bootstrap_complete",
+                "source_path": str(source.path),
+                "source_reused": source.reused,
+                "source_sha256": source.sha256,
+                **asdict(result),
+            },
+            sort_keys=True,
+        )
+    )
 
 
 def demo_queries() -> None:

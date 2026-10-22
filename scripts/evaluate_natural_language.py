@@ -70,13 +70,27 @@ def main() -> None:
             temporal = payload.get("temporal_interpretation", {})
             result = payload.get("result", {})
             if case["category"] == "supported":
+                rows = result.get("rows")
+                operation = case["plan"]["operation"]
+                daily_bounds_present = (
+                    operation == "activity_state_comparison"
+                    or (
+                        isinstance(rows, list)
+                        and all(
+                            "first_observed_at" in row
+                            and "last_observed_at" in row
+                            for row in rows
+                        )
+                    )
+                )
                 passed = (
                     status == 200
                     and result.get("aggregation_basis") == "recorded_observations"
-                    and interpreted.get("operation") == case["plan"]["operation"]
+                    and interpreted.get("operation") == operation
                     and interpreted.get("user_id") == case["plan"]["user_id"]
                     and interpreted.get("start") == case["plan"]["start"]
                     and interpreted.get("end") == case["plan"]["end"]
+                    and daily_bounds_present
                 )
             else:
                 try:

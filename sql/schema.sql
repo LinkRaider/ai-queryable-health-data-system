@@ -37,15 +37,12 @@ CREATE INDEX IF NOT EXISTS heart_rate_time_activity_user_idx
     INCLUDE (value);
 
 CREATE TABLE IF NOT EXISTS ingestion_runs (
-    run_key text PRIMARY KEY CHECK (run_key ~ '^[a-f0-9]{64}$'),
+    source_key text PRIMARY KEY CHECK (source_key ~ '^[a-f0-9]{64}$'),
     schema_version text NOT NULL,
     generator_version text NOT NULL,
     configuration jsonb NOT NULL,
     status text NOT NULL CHECK (status IN ('in_progress', 'complete')),
     expected_event_count integer NOT NULL CHECK (expected_event_count >= 0),
-    total_batches integer NOT NULL CHECK (total_batches >= 0),
-    next_batch_index integer NOT NULL DEFAULT 0
-        CHECK (next_batch_index >= 0 AND next_batch_index <= total_batches),
     inserted_event_count integer NOT NULL DEFAULT 0
         CHECK (inserted_event_count >= 0 AND inserted_event_count <= expected_event_count),
     started_at timestamptz NOT NULL DEFAULT now(),
@@ -57,10 +54,25 @@ CREATE TABLE IF NOT EXISTS ingestion_runs (
         (
             status = 'complete'
             AND completed_at IS NOT NULL
-            AND next_batch_index = total_batches
         )
     )
 );
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'ingestion_runs' AND column_name = 'run_key'
+    ) THEN
+        ALTER TABLE ingestion_runs RENAME COLUMN run_key TO source_key;
+    END IF;
+END
+$$;
+
+ALTER TABLE ingestion_runs
+    DROP COLUMN IF EXISTS next_batch_index,
+    DROP COLUMN IF EXISTS total_batches;
 
 DO $$
 BEGIN
