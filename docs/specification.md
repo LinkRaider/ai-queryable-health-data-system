@@ -11,17 +11,19 @@ validated measurements and must not be used for health decisions.
 
 ## Scope
 
-The system generates deterministic synthetic heart-rate observations, ingests
-them directly into PostgreSQL in retry-safe batches, and exposes bounded
-analytical queries through FastAPI. A small local model interprets supported
+The system generates deterministic synthetic heart-rate observations,
+atomically publishes them as a JSONL source, ingests that persisted source
+into PostgreSQL in retry-safe batches, and exposes bounded analytical queries
+through FastAPI. A small local model interprets supported
 natural-language questions as structured query plans. Application code
 validates those plans and builds parameterised SQL; model-generated SQL is
 never accepted or executed.
 
 The clean-start path consists only of Docker Compose services:
 
-1. PostgreSQL stores profiles, observations, and durable ingestion progress.
-2. A one-shot bootstrap service generates and ingests the configured history.
+1. PostgreSQL stores profiles, observations, and accepted source identity.
+2. A one-shot bootstrap service publishes the configured history to a source
+   volume when absent, then replays that source into PostgreSQL.
 3. Ollama runs the local model, and a one-shot preparation service downloads
    the pinned model before the API starts.
 4. FastAPI serves health, structured-query, and natural-language routes.
@@ -115,9 +117,14 @@ single-user queries and UTC for population queries.
 
 Results contain explicit grouping dimensions, rounded
 `mean_recorded_bpm`, observation count, and—where relevant—distinct user
-count. Each recorded observation has equal weight; these are not time-weighted
-or equal-user-weighted means. An empty match returns HTTP 200 with `rows: []`,
-not an invented zero.
+count. Both daily operations also return `first_observed_at` and
+`last_observed_at` for the observations that contributed to each group. Each
+recorded observation has equal weight; these are not time-weighted or
+equal-user-weighted means. More readings do not prove better time coverage,
+and the first-to-last span does not prove there are no gaps. An empty match
+returns HTTP 200 with `rows: []`, not an invented zero; a missing day is not a
+day observed at zero BPM. No coverage percentage is inferred without a
+defensible denominator.
 
 ## Query and error boundaries
 
@@ -162,37 +169,50 @@ It validates these recognized lexical cues before and after planning and
 rejects detected mismatches. This is a bounded contract, not a claim of general
 natural-language understanding.
 
-## Durable ingestion and recovery
+## Persisted source, idempotent ingestion, and recovery
 
-An ingestion run key is a digest of schema version, seed, fixed window, user
-count, and generator version. PostgreSQL stores the run key, status, total
-planned batches, next batch index, inserted-event count, and timestamps.
+The source consists of one event per JSONL line plus a minimal sidecar with the
+source format, generation configuration, line and unique-event counts, and
+SHA-256 digest. Initial generation writes a temporary file in the same volume,
+flushes it, and renames it to the final path only after every event is written.
+The sidecar is published last. A JSONL file without its sidecar is not a
+published source and may be replaced after an interrupted initial generation.
 
-Events are generated in a stable order and divided into fixed-size batches.
-For each batch, observation inserts using `ON CONFLICT DO NOTHING` and the
-checkpoint advance commit in one database transaction:
+A complete compatible source is verified and reused without calling the event
+generator. A different configuration or a digest/count mismatch fails instead
+of silently replacing the source. Determinism supports reproducible fixture
+creation; ingestion recovery depends on the published file, not regeneration.
 
-- A failure before commit leaves neither events nor checkpoint.
-- A failure after commit leaves both events and the advanced checkpoint.
-- Restart regenerates the identical sequence and starts at the durable next
-  batch index.
-- Replaying a completed run performs no duplicate inserts.
-- The demo database holds one declared generation configuration. A different
-  run key is rejected and requires an isolated database. Coexistence or
-  migration between configurations is outside the validated design because
-  stable profile IDs and overlapping natural observation keys can conflict.
+Every attempt reads the source from its first line and writes transactional
+batches. Stable event and natural identities make that full replay idempotent:
 
-The interruption test will load an identical baseline database, start a delayed
-load into a fresh database, kill the bootstrap container after at least one
-batch commits and before completion, record the checkpoint and row count,
-restart it, and compare final row count plus a stable digest of event identity
-and values with the uninterrupted baseline. This directly tests restart from a
-durable post-commit checkpoint. It does not send a signal inside an open
-transaction; rollback before commit remains a PostgreSQL atomicity guarantee
-supported by the transaction boundary in the code rather than direct
-interruption evidence. The harness checks that bootstrap remains running,
-pauses between checkpoint reads, and emits bootstrap logs if a 120-second
-deadline expires.
+- Same `event_id` and same content is accepted without another row.
+- Same `event_id` and different content is rejected explicitly.
+- A natural identity already attached to another `event_id` is rejected.
+- Invalid JSON or event shape reports the source line number.
+- Earlier committed batches can remain after failure; retry verifies those
+  rows and inserts only missing observations.
+- Arrival order does not affect final analytics, which filter and group by
+  `observed_at`.
+
+No positional checkpoint is maintained. The measured complete 271,620-line
+replay took 18 seconds, which is acceptable for this local volume and simpler
+than a second recovery mechanism. PostgreSQL records source identity, expected
+unique count, inserted count, and completion status. The demo database accepts
+one source configuration; migration and coexistence are not implemented.
+
+The interruption harness gives baseline and recovery databases the same source
+volume, observes previously committed rows while a post-commit delay is
+configured, sends `SIGKILL`, then replays the file from line one. It compares
+final count and a stable database digest with the uninterrupted load. This
+tests recovery with earlier durable batches. Polling cannot establish whether
+the next transaction was open at the exact signal instant, so the harness makes
+no inside-transaction or outside-transaction claim. It checks container state
+and fails with logs after a bounded wait.
+
+The local named volume preserves the file across normal container replacement.
+It is not backup, replication, or recovery from loss of that volume. Real
+measurements that were never persisted cannot be reconstructed.
 
 ## Acceptance criteria
 
@@ -202,6 +222,8 @@ deadline expires.
   component, prepares the local model, ingests 50 users over the fixed
   seven-day window, and starts a ready API without hidden host setup.
 - A fixed-seed replay produces the same ordered payloads and event IDs.
+- A complete JSONL source is published by same-volume rename and reused on
+  later runs; partial publication and incompatible configuration are tested.
 - Automated tests detect profile variation, all activity states,
   state-dependent irregular sampling, and genuine device-off gaps.
 - The measured event count and clean-start elapsed time are recorded after the
@@ -210,13 +232,18 @@ deadline expires.
 ### Persistence and analytics
 
 - PostgreSQL rejects duplicate event IDs and duplicate natural event keys.
-- Replaying a complete load leaves the event count and digest unchanged.
-- A different generation run key is rejected instead of mixing configurations
-  in the same demo database.
+- Replaying a complete source leaves the event count and digest unchanged.
+- Exact duplicate events are accepted, conflicting duplicate IDs are rejected,
+  and invalid lines identify their source position.
+- Out-of-order and late older events produce the same analytical result as the
+  same unique observations in time order.
+- A different source configuration is rejected instead of mixing
+  configurations in the same demo database.
 - The interruption procedure resumes to the same count and digest as an
-  uninterrupted load.
+  uninterrupted load by rereading the same persisted file.
 - Fixture tests with hand-calculated values verify all three operations,
-  including averages, counts, grouping boundaries, and empty results.
+  including averages, counts, first/last contributing timestamps, grouping
+  boundaries, and empty results.
 - Tests cover invalid timestamps, unsupported metric and operation, excessive
   range, unknown user, and oversized response.
 
@@ -243,18 +270,19 @@ deadline expires.
   documented.
 - Observed end-to-end evidence, isolated-test evidence, limitations, and
   unverified claims are clearly separated.
-- The README identifies deterministic synthesis and interruption-safe
-  ingestion as the two depth areas.
+- The README identifies idempotent ingestion from a persisted source and
+  explicit analytical semantics under irregular/missing samples as the two
+  depth areas.
 - AI-usage notes state delegated work, human corrections, and work that
   requires human judgment without claiming reviews that did not occur.
 - The README ends with the required "If you had two more weeks" paragraph.
 
 ## Chosen tradeoffs
 
-- **Direct batches over a broker:** seven days of deterministic demo history
-  does not need asynchronous transport. PostgreSQL transactions provide the
-  delivery and recovery guarantees being demonstrated with less operational
-  surface.
+- **Persisted JSONL and direct batches over a broker:** seven days of demo
+  history does not need asynchronous transport. An inspectable source plus
+  PostgreSQL transactions provides the demonstrated replay behavior with less
+  operational surface.
 - **PostgreSQL for storage and analytics:** the exposed dimensions and volume
   fit indexed relational queries. One engine avoids a second datastore and a
   synchronization path.

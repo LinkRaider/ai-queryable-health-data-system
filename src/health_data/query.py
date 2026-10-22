@@ -118,7 +118,9 @@ DAILY_USER_AVERAGE_SQL = """
     SELECT
         (o.observed_at AT TIME ZONE u.timezone_name)::date AS day,
         round(avg(o.value), 1)::double precision AS mean_recorded_bpm,
-        count(*)::integer AS observation_count
+        count(*)::integer AS observation_count,
+        min(o.observed_at) AS first_observed_at,
+        max(o.observed_at) AS last_observed_at
     FROM heart_rate_observations AS o
     JOIN users AS u ON u.user_id = o.user_id
     WHERE
@@ -158,7 +160,9 @@ POPULATION_DAILY_AVERAGE_SQL = """
         (o.observed_at AT TIME ZONE 'UTC')::date AS day,
         round(avg(o.value), 1)::double precision AS mean_recorded_bpm,
         count(*)::integer AS observation_count,
-        count(DISTINCT o.user_id)::integer AS user_count
+        count(DISTINCT o.user_id)::integer AS user_count,
+        min(o.observed_at) AS first_observed_at,
+        max(o.observed_at) AS last_observed_at
     FROM heart_rate_observations AS o
     WHERE
         o.metric = %s

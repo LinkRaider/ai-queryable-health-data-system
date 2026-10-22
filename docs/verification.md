@@ -5,7 +5,7 @@ Verification environment:
 - Host architecture: Apple/ARM64
 - Docker Engine: `29.1.2`, Linux/ARM64
 - Docker Compose: `2.40.3-desktop.1`
-- Verification date: 2026-10-20
+- Verification date: 2026-10-22
 
 Observed facts are separated below from isolated-test evidence and checks that
 were not performed.
@@ -19,31 +19,29 @@ Command:
 ```
 
 The script first ran `docker compose down --volumes --remove-orphans`, removing
-both PostgreSQL and Ollama named volumes. It then ran `docker compose up
---build --detach --remove-orphans`, waited for the API health check, exercised
-both query routes, submitted a rejected question, and replayed bootstrap.
+the PostgreSQL, JSONL source, and Ollama named volumes. It then ran `docker
+compose up --build --detach --remove-orphans`, waited for the API health check,
+exercised both query routes, submitted a rejected question, measured a complete
+source replay, and repeated `down`/`up` with the volumes preserved.
 
 Observed:
 
-- Time from starting Compose until the API health check passed: **286 seconds**
-- Generated and stored observations: **271,620**
+- Time from starting Compose until the API health check passed: **67 seconds**
+- JSONL source records generated and stored observations: **271,620**
 - Users: **50**
 - History: `2026-01-05T00:00:00Z` through `2026-01-12T00:00:00Z`
 - PostgreSQL: healthy
 - Ollama: healthy
 - Model preparation: exited 0 after downloading `qwen2.5:1.5b` into the newly
   created model volume
-- Bootstrap: exited 0 after 272 committed batches
+- Bootstrap: atomically published the source, then exited 0 after 272 batches
 - FastAPI: healthy on `127.0.0.1:8000`
 
-The 286-second measurement used empty persistent volumes but retained Docker's
+The 67-second measurement used empty persistent volumes but retained Docker's
 previously downloaded image layers. It includes rebuilding the application
-image, downloading the model into an empty Ollama volume, generation,
+image, downloading the model into an empty Ollama volume, JSONL generation,
 ingestion, and API readiness. It is not presented as a no-cache, new-VM
-measurement. Earlier empty-volume runs took 99, 144, 149, 150, 158, 208, 236,
-and 450 seconds, and the first Ollama image/model setup earlier in development
-took 1,881.738 seconds on the same network, demonstrating the effect of network
-and registry caching.
+measurement.
 
 Health response:
 
@@ -99,9 +97,13 @@ explicit range:
 ```
 
 It returned eight local-day groups. The first was `2026-01-04`, a recorded
-observation mean of 63.7 BPM from 25 readings, and the last was `2026-01-11`,
-a recorded observation mean of 63.1 BPM from 36 readings. The UTC range
-crosses eight calendar dates in the user's `America/Los_Angeles` time zone.
+observation mean of 63.7 BPM from 25 readings between
+`2026-01-05T02:30:11Z` and `2026-01-05T07:27:42Z`. The last was
+`2026-01-11`, a recorded observation mean of 63.1 BPM from 36 readings between
+`2026-01-11T15:55:03Z` and `2026-01-11T20:58:17Z`. These bounds identify
+contributing observations; they do not prove the interval between them has no
+gaps. The UTC range crosses eight calendar dates in the user's
+`America/Los_Angeles` time zone.
 
 The ambiguous question `What was the average heart rate from
 2026-01-05T00:00:00Z to 2026-01-12T00:00:00Z?` returned HTTP 422:
@@ -115,8 +117,12 @@ The ambiguous question `What was the average heart rate from
 }
 ```
 
-Bootstrap replay reported `inserted_this_attempt: 0`; the observation count
-remained **271,620**.
+Bootstrap validated and processed all 271,620 source lines in **18 seconds**,
+reported `source_reused: true` and `inserted_this_attempt: 0`, and left the
+observation count at **271,620**. A subsequent Compose restart with all named
+volumes preserved became healthy in **23 seconds** and retained the same count.
+The persisted source SHA-256 was
+`8a96006e1229c3fbb394603aa01581ac564879115fc1f4234c07a6375e1e7f09`.
 
 ## Live local-model evaluation
 
@@ -134,7 +140,7 @@ fault-injection cases covered by the isolated suite.
   user scope, and ranges.
 - The `last week` question used the real request time, exposed the previous ISO
   week `2026-10-12T00:00:00Z` through `2026-10-19T00:00:00Z` in UTC from
-  request reference `2026-10-20T16:50:00.128731Z`, and returned an empty result
+  request reference `2026-10-22T09:36:00.266064Z`, and returned an empty result
   because it did not overlap the January snapshot.
 - The evaluator derives whether rows are expected from overlap between the
   resolved week and the fixed snapshot; it does not always require an empty
@@ -173,15 +179,20 @@ Command:
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Observed on the updated worktree: **51 tests passed in 11.900 seconds**.
+Observed on the updated worktree: **65 tests passed in 17.299 seconds**.
 Coverage includes:
 
 - fixed-seed payload and ID reproducibility;
 - profile variation, all four states, cadence jitter, and device-off gaps;
-- PostgreSQL constraints and replay idempotency;
-- rejection of a different generation run key in the same demo database;
-- committed-batch exception and resume;
+- JSONL field-preserving round trip and failed-generation publication safety;
+- source reuse without generator invocation and incompatible-source rejection;
+- PostgreSQL constraints and full-replay idempotency;
+- exact duplicates, conflicting duplicate identity, invalid source lines,
+  out-of-order events, and a late older observation;
+- rejection of a different source configuration in the same demo database;
+- committed-batch exception and replay from the same source;
 - hand-calculated answers for all three query operations;
+- first and last contributing timestamps for both daily operations;
 - explicit proof that population means weight recorded observations rather
   than users equally;
 - empty, invalid timestamp, unsupported metric/operation, unknown user,
@@ -197,48 +208,33 @@ Coverage includes:
 future `httpx2` transport. It did not fail a test.
 
 The actual `SIGKILL` container recovery test is recorded separately in
-`docs/interruption-verification.md`: both uninterrupted and recovered loads
-ended at 271,620 rows with ordered digest
-`2791d4a9a5996490ff6191256d36ca5a`.
-The harness's negative-control run with an unreachable checkpoint and a
-one-second deadline exited non-zero with the expected timeout diagnostic.
+`docs/interruption-verification.md`. Recovery reused the same persisted source
+digest, began with 6,000 committed rows, reread all 271,620 source records,
+inserted the remaining 265,620 in 24 seconds, and ended with the same ordered
+database digest as the uninterrupted load:
+`271620|2791d4a9a5996490ff6191256d36ca5a`.
 
 ## Failures encountered and corrected
 
-1. `psycopg-binary==3.2.3` had no local Python 3.14 wheel. It was replaced by
-   pinned `3.3.6`; installation and all database tests then passed.
-2. The first Compose project name collided with a pre-existing local project
-   named `health-data-system`. Its containers and PostgreSQL volume were
-   removed by the attempted clean start; source files were untouched. This
-   repository now uses the unique project name `ai-health-data-solution`.
-3. Two services initially tried to export the same application image in
-   parallel. Image ownership was reduced to the bootstrap build and dependent
-   services reuse it.
-4. The first bootstrap image could not locate `sql/schema.sql` from the
-   installed wheel path. The image now sets an explicit in-image schema path.
-5. The first API test run resolved a function-local dependency alias as a
-   forward reference and returned 422. The dependency was moved to module
-   scope; all endpoint and OpenAPI tests passed.
-6. The first local-model evaluation exposed the two invalid user fields
-   described above. Validation rejected them, and the revised constrained
-   prompt produced 5/5 valid final interpretations.
-7. The first fractional-second test expected a shortened `.5Z` serialization;
-   Pydantic correctly emitted `.500000Z`. The assertion was corrected and all
-   49 tests passed.
-8. The first final Compose attempt hit a missing internal Docker extraction
-   snapshot while exporting the application image. Repeating the same
-   empty-volume build succeeded; this was a Docker cache failure before any
-   service started.
-
-No failure occurred in the successful final empty-persisted-state retry.
+The first final test command started the disposable PostgreSQL container and
+immediately launched the suite. The server closed the first API-test
+connection while still starting, so that attempt ended with one setup error.
+Repeating the suite after PostgreSQL was ready passed all 65 tests. No failure
+occurred in the empty-volume Compose run, preserved-volume restart, live-model
+evaluation, or interruption harness.
 
 ## Not verified
 
 - A brand-new VM with no Docker image cache was not available. Compose image
-  references, builds, and model preparation were exercised, but the 286-second
+  references, builds, and model preparation were exercised, but the 67-second
   timing must not be extrapolated to an uncached network.
 - AMD64 execution was not run; verification used ARM64.
 - Synthetic patterns were reviewed for demo plausibility. They were not
   clinically validated.
 - Production load, multi-instance concurrency, authentication, TLS, backup,
   restore, and disaster-recovery procedures are outside this challenge.
+- The source volume was tested across normal container replacement, not host
+  loss, volume corruption, backup, or restore.
+- The interruption harness killed bootstrap after earlier batches were observed
+  committed. Polling did not establish whether a subsequent transaction was
+  open at the exact signal instant.

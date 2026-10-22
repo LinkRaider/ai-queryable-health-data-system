@@ -10,7 +10,9 @@ COPY pyproject.toml ./
 COPY src ./src
 COPY sql ./sql
 
-RUN python -m pip install --no-cache-dir .
+RUN python -m pip install --no-cache-dir . \
+    && mkdir -p /var/lib/health-data-source \
+    && chown 65532:65532 /var/lib/health-data-source
 
 USER 65532:65532
 

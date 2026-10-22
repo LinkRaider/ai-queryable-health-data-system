@@ -87,6 +87,8 @@ class DailyAverageRow(BaseModel):
     day: str
     mean_recorded_bpm: float
     observation_count: int
+    first_observed_at: datetime
+    last_observed_at: datetime
 
 
 class ActivityComparisonRow(BaseModel):
@@ -104,6 +106,8 @@ class PopulationAverageRow(BaseModel):
     mean_recorded_bpm: float
     observation_count: int
     user_count: int
+    first_observed_at: datetime
+    last_observed_at: datetime
 
 
 class AnalyticalQueryResponse(BaseModel):
