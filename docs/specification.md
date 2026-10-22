@@ -28,8 +28,8 @@ The clean-start path consists only of Docker Compose services:
    the pinned model before the API starts.
 4. FastAPI serves health, structured-query, and natural-language routes.
 
-No broker, hosted model, paid API, arbitrary-SQL route, or clinical
-interpretation is in scope.
+No broker (including Kafka), positional ingestion checkpoint, hosted model,
+paid API, arbitrary-SQL route, or clinical interpretation is in scope.
 
 ## Versioned event contract
 
@@ -254,11 +254,10 @@ measurements that were never persisted cannot be reconstructed.
 - Natural-language requests invoke the Compose-managed local model, validate
   its structured plan through the same path, and return that interpretation,
   including request-time application-resolved relative-date context.
-- An explicit evaluation set covers all three supported question shapes,
-  ambiguity, unsupported metrics, unsupported aggregations, missing,
-  conflicting, and unsupported grouping dimensions, incompatible state
-  filters and grouping time zones, malformed identity, invalid timestamps,
-  medical advice, invalid model output, and model unavailability.
+- The explicit evaluation manifest contains 22 cases: 20 live endpoint
+  requests, of which four supported questions call the real model and 16 are
+  rejected before model use, plus two deterministic isolated fault-injection
+  cases for invalid model output and model unavailability.
 - Clean-start verification exercises health, one structured query, one
   supported natural-language query, one rejected natural-language query, and
   records the observed responses.
@@ -282,7 +281,9 @@ measurements that were never persisted cannot be reconstructed.
 - **Persisted JSONL and direct batches over a broker:** seven days of demo
   history does not need asynchronous transport. An inspectable source plus
   PostgreSQL transactions provides the demonstrated replay behavior with less
-  operational surface.
+  operational surface. Continuous ingestion and streaming are not implemented;
+  Kafka would be reconsidered only for measured requirements such as retained
+  replay, backpressure, and independent consumers.
 - **PostgreSQL for storage and analytics:** the exposed dimensions and volume
   fit indexed relational queries. One engine avoids a second datastore and a
   synchronization path.
