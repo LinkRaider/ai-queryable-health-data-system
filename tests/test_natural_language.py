@@ -415,7 +415,36 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
 
         self.assertEqual(422, response.status_code)
         self.assertEqual("unsupported_operation", response.json()["error"]["code"])
-        self.assertEqual(0, planner.call_count)
+        self.assertEqual(1, planner.call_count)
+
+    def test_period_plan_cannot_change_activity_or_grouping(self) -> None:
+        for requested, planned in (
+            ("", "user_period_resting_average"),
+            ("resting ", "user_period_average"),
+            ("resting ", "daily_user_average"),
+            ("resting ", "activity_state_comparison"),
+        ):
+            question = (f"What was user-0001's average {requested}heart rate from "
+                        "2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?")
+            planner = FixedPlanner(output=dict(
+                operation=planned, user_id="user-0001", metric="heart_rate",
+                start="2026-01-05T00:00:00Z", end="2026-01-07T00:00:00Z",
+            ))
+            response = TestClient(create_app(TEST_DATABASE_URL, planner=planner)).post(
+                "/v1/query/natural-language", json={"question": question},
+            )
+            self.assertEqual(422, response.status_code)
+            self.assertEqual(1, planner.call_count)
+        planner = FixedPlanner(output=dict(
+            operation="user_period_resting_average", user_id="user-0001", metric="heart_rate",
+            start="2026-01-05T00:00:00Z", end="2026-01-07T00:00:00Z",
+        ))
+        response = TestClient(create_app(TEST_DATABASE_URL, planner=planner)).post(
+            "/v1/query/natural-language", json={"question":
+                "What was user-0001's average resting heart rate each day from "
+                "2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"},
+        )
+        self.assertEqual(422, response.status_code)
 
     def test_ambiguous_question_is_rejected_before_model_call(self) -> None:
         case = next(case for case in CASES if case["category"] == "ambiguous")

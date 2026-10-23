@@ -1,5 +1,9 @@
 # Verification record
 
+This is the historical ARM64 record for the original three operations. Current
+period-average evidence is in [period-average-verification.md](period-average-verification.md);
+its new test counts and model results do not replace the measurements below.
+
 Verification environment:
 
 - Host architecture: Apple/ARM64

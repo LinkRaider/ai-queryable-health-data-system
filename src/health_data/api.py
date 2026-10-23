@@ -91,6 +91,15 @@ class DailyAverageRow(BaseModel):
     last_observed_at: datetime
 
 
+class PeriodAverageRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mean_recorded_bpm: float
+    observation_count: int
+    first_observed_at: datetime
+    last_observed_at: datetime
+
+
 class ActivityComparisonRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -118,7 +127,7 @@ class AnalyticalQueryResponse(BaseModel):
     start: datetime
     end: datetime
     aggregation_basis: Literal["recorded_observations"]
-    rows: list[DailyAverageRow | ActivityComparisonRow | PopulationAverageRow]
+    rows: list[DailyAverageRow | ActivityComparisonRow | PopulationAverageRow | PeriodAverageRow]
 
 
 class InterpretedQueryResponse(BaseModel):
