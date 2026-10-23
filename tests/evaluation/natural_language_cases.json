@@ -1,5 +1,31 @@
 [
   {
+    "name": "whole-period all readings",
+    "category": "supported",
+    "question": "What was user-0001's average heart rate from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?",
+    "plan": {"operation": "user_period_average", "user_id": "user-0001", "metric": "heart_rate", "start": "2026-01-05T00:00:00Z", "end": "2026-01-07T00:00:00Z"}
+  },
+  {
+    "name": "whole-period resting readings",
+    "category": "supported",
+    "question": "What was user-0001's average resting heart rate from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?",
+    "plan": {"operation": "user_period_resting_average", "user_id": "user-0001", "metric": "heart_rate", "start": "2026-01-05T00:00:00Z", "end": "2026-01-07T00:00:00Z"}
+  },
+  {
+    "name": "whole-period all readings real last week",
+    "category": "supported_relative",
+    "question": "What was user-0001's average heart rate last week?",
+    "expected_operation": "user_period_average",
+    "expected_user_id": "user-0001"
+  },
+  {
+    "name": "whole-period resting readings real last week",
+    "category": "supported_relative",
+    "question": "What was user-0001's average resting heart rate last week?",
+    "expected_operation": "user_period_resting_average",
+    "expected_user_id": "user-0001"
+  },
+  {
     "name": "daily resting average",
     "category": "supported",
     "question": "What was user-0001's average resting heart rate each day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?",

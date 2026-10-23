@@ -17,6 +17,8 @@ USER_ID_PATTERN = re.compile(r"^user-[0-9]{4}$")
 
 
 class QueryOperation(StrEnum):
+    USER_PERIOD_AVERAGE = "user_period_average"
+    USER_PERIOD_RESTING_AVERAGE = "user_period_resting_average"
     DAILY_USER_AVERAGE = "daily_user_average"
     ACTIVITY_STATE_COMPARISON = "activity_state_comparison"
     POPULATION_DAILY_AVERAGE = "population_daily_average"
@@ -91,6 +93,8 @@ def validate_query(query: StructuredQuery) -> StructuredQuery:
         )
 
     single_user = operation in {
+        QueryOperation.USER_PERIOD_AVERAGE,
+        QueryOperation.USER_PERIOD_RESTING_AVERAGE,
         QueryOperation.DAILY_USER_AVERAGE,
         QueryOperation.ACTIVITY_STATE_COMPARISON,
     }
@@ -113,6 +117,20 @@ def validate_query(query: StructuredQuery) -> StructuredQuery:
         row_limit=query.row_limit,
     )
 
+
+USER_PERIOD_AVERAGE_SQL = """
+    SELECT
+        round(avg(o.value), 1)::double precision AS mean_recorded_bpm,
+        count(*)::integer AS observation_count,
+        min(o.observed_at) AS first_observed_at,
+        max(o.observed_at) AS last_observed_at
+    FROM heart_rate_observations AS o
+    WHERE o.user_id = %s AND o.metric = %s
+        AND o.observed_at >= %s AND o.observed_at < %s
+        AND (%s::boolean = false OR o.activity_state = 'rest')
+    HAVING count(*) > 0
+    LIMIT %s
+"""
 
 DAILY_USER_AVERAGE_SQL = """
     SELECT
@@ -179,6 +197,14 @@ def build_query(query: StructuredQuery) -> tuple[str, tuple[Any, ...]]:
 
     operation = QueryOperation(query.operation)
     fetch_limit = query.row_limit + 1
+    if operation in {
+        QueryOperation.USER_PERIOD_AVERAGE,
+        QueryOperation.USER_PERIOD_RESTING_AVERAGE,
+    }:
+        return USER_PERIOD_AVERAGE_SQL, (
+            query.user_id, query.metric, query.start, query.end,
+            operation is QueryOperation.USER_PERIOD_RESTING_AVERAGE, fetch_limit,
+        )
     if operation is QueryOperation.DAILY_USER_AVERAGE:
         return DAILY_USER_AVERAGE_SQL, (
             query.user_id,

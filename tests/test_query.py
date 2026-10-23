@@ -130,6 +130,65 @@ class AnalyticalQueryTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.connection.close()
 
+    def test_period_means_and_contributing_bounds(self) -> None:
+        # Unequal daily counts: rest mean is 62.5, not (60 + 70) / 2.
+        for operation, mean, count, last in (
+            ("user_period_average", 85.0, 6, START + timedelta(days=1, hours=2)),
+            ("user_period_resting_average", 62.5, 4, START + timedelta(days=1, hours=1)),
+        ):
+            with self.subTest(operation=operation):
+                result = execute_query(self.connection, StructuredQuery(
+                    operation=operation, user_id="user-0001", start=START, end=END,
+                ))
+                self.assertEqual(({
+                    "mean_recorded_bpm": mean, "observation_count": count,
+                    "first_observed_at": START.isoformat(),
+                    "last_observed_at": last.isoformat(),
+                },), result.rows)
+                self.assertEqual(START.isoformat(), result.as_dict()["start"])
+                self.assertEqual(END.isoformat(), result.as_dict()["end"])
+                sql, parameters = build_query(validate_query(StructuredQuery(
+                    operation=operation, user_id="user-0001", start=START, end=END,
+                )))
+                self.assertNotIn("user-0001", sql)
+                self.assertIn("user-0001", parameters)
+
+    def test_period_boundaries_empty_and_unknown_user(self) -> None:
+        for operation in ("user_period_average", "user_period_resting_average"):
+            with self.subTest(operation=operation):
+                result = execute_query(self.connection, StructuredQuery(
+                    operation=operation, user_id="user-0001", start=START,
+                    end=START + timedelta(hours=1),
+                ))
+                self.assertEqual(40.0, result.rows[0]["mean_recorded_bpm"])
+                self.assertEqual(1, result.rows[0]["observation_count"])
+                for user, start, end in (
+                    ("user-0001", END + timedelta(days=1), END + timedelta(days=2)),
+                    ("user-0002", START, START + timedelta(hours=1)),
+                ):
+                    self.assertEqual((), execute_query(self.connection, StructuredQuery(
+                        operation=operation, user_id=user, start=start, end=end,
+                    )).rows)
+                with self.assertRaises(UnknownUserError):
+                    execute_query(self.connection, StructuredQuery(
+                        operation=operation, user_id="user-9999", start=START, end=END,
+                    ))
+                for kwargs in (
+                    {"user_id": None}, {"user_id": "user-0001-extra"},
+                    {"metric": "steps"}, {"row_limit": 0}, {"row_limit": 1001},
+                    {"end": START + timedelta(days=32)},
+                    {"start": START.replace(tzinfo=None)}, {"end": START},
+                ):
+                    values = dict(operation=operation, user_id="user-0001", start=START, end=END)
+                    values.update(kwargs)
+                    with self.assertRaises(AnalyticalQueryError):
+                        validate_query(StructuredQuery(**values))
+        # A matching non-rest reading is not evidence of a resting observation.
+        self.assertEqual((), execute_query(self.connection, StructuredQuery(
+            operation="user_period_resting_average", user_id="user-0001",
+            start=START + timedelta(hours=3), end=START + timedelta(hours=4),
+        )).rows)
+
     def test_daily_resting_average_has_known_answer(self) -> None:
         result = execute_query(
             self.connection,

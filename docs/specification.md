@@ -4,8 +4,8 @@ Status: implementation contract
 Event schema: `health.heart_rate.observation.v1`  
 Demo configuration: 50 users, seven complete days, fixed seed `20261019`
 
-This document turns the challenge brief into testable acceptance criteria before
-implementation. Heart-rate values and behavioural schedules are synthetic
+This document describes the implementation-selected contract and acceptance
+criteria. These choices are not additional requirements imposed by the brief. Heart-rate values and behavioural schedules are synthetic
 patterns for demonstrating an engineering system. They are not clinically
 validated measurements and must not be used for health decisions.
 
@@ -95,8 +95,8 @@ assert that the data is medically realistic.
 ## Demonstration questions
 
 All ranges are half-open: `start <= observed_at < end`. Input timestamps must
-include an offset. Day grouping uses the selected user's profile time zone for
-single-user queries and UTC for population queries.
+include an offset. The single-user daily operation groups by the profile time zone; the population
+daily operation groups by UTC. The state comparison groups by state, not day.
 
 1. **Daily resting average for one user**  
    "What was `user-0001`'s average resting heart rate each day from
@@ -115,11 +115,33 @@ single-user queries and UTC for population queries.
    each UTC day in that range?"  
    Operation: `population_daily_average`; no user filter; grouped by UTC day.
 
-Results contain explicit grouping dimensions, rounded
+4. **Whole-period user mean, all readings**
+   Operation: `user_period_average`; required user; no grouping or activity
+   filter; arithmetic mean over all recorded readings in `[start,end)`.
+5. **Whole-period user mean, resting readings**
+   Operation: `user_period_resting_average`; required user; fixed `rest` filter;
+   no grouping. Explicit resting requests never select the all-state operation.
+
+Both period operations return zero or one row: `mean_recorded_bpm`,
+`observation_count`, `first_observed_at`, and `last_observed_at`. An aggregate
+with no matching readings is suppressed, leaving `rows: []`. Interval metadata
+is the requested interval; min/max describe only contributing readings.
+Average the observations themselves, not daily means: three readings averaging
+60 BPM and one at 70 BPM yield 62.5 BPM, not 65 BPM. These operations reuse the
+existing observations table; no migration or source change is required.
+
+Natural language without daily/state grouping selects a period operation;
+“rest”/“resting” selects the rest-only variant. Explicit dates and the real
+previous ISO week are supported for both. Daily rest semantics stay unchanged.
+A candidate plan with mismatched grouping or rest scope is rejected rather
+than silently answering another question. Maximum, median, other state-only
+filters, and extra grouping dimensions remain outside this bounded contract.
+
+Results contain explicit grouping dimensions where applicable, rounded
 `mean_recorded_bpm`, observation count, and—where relevant—distinct user
 count. Both daily operations also return `first_observed_at` and
 `last_observed_at` for the observations that contributed to each group. Each
-recorded observation has equal weight; these are not time-weighted or
+recorded observation has equal weight in the arithmetic mean; these are not time-weighted or
 equal-user-weighted means. More readings do not prove better time coverage,
 and the first-to-last span does not prove there are no gaps. An empty match
 returns HTTP 200 with `rows: []`, not an invented zero; a missing day is not a
@@ -128,22 +150,26 @@ defensible denominator.
 
 ## Query and error boundaries
 
-- Only the three operations above, the `heart_rate` metric, and the four
+- Only the five operations above, the `heart_rate` metric, and the four
   activity states are accepted.
 - All values are bound parameters. Operation and grouping SQL fragments come
   from application-owned allowlists.
 - `start` must precede `end`; both timestamps must be offset-aware; ranges may
-  not exceed 31 days.
+  not exceed 31 days. This does not extend the seven-day dataset or fill
+  dates without observations.
 - A single-user operation requires a syntactically valid, existing `user_id`.
   Population aggregation rejects a user filter.
-- Responses are capped at 1,000 rows. The query fetches at most 1,001 rows and
-  returns a documented HTTP 413 error instead of truncating silently.
+- row_limit accepts 1–1,000 aggregated output rows (default 1,000).
+  The query fetches row_limit + 1 and returns HTTP 413 on overflow, not
+  a truncated result. Four state groups with row_limit=2 overflow;
+  raw observation count does not trigger this error. The default ceiling
+  is not normally reachable with these operations and the 31-day range.
 - Malformed input, unsupported metrics/dimensions/aggregations, medical-advice
   requests, ambiguous natural language, and invalid model output return a
   structured 422 error.
 - Model unavailability or timeout returns a structured 503 error.
 - Database unavailability returns a structured 503 error without exposing
-  credentials or internal SQL.
+  credentials or internal implementation details.
 - Neither endpoint accepts SQL text.
 
 For natural language, the response includes the validated interpreted request
@@ -168,6 +194,10 @@ population operation, malformed user tokens, and invalid calendar timestamps.
 It validates these recognized lexical cues before and after planning and
 rejects detected mismatches. This is a bounded contract, not a claim of general
 natural-language understanding.
+
+An overall-period mean is one value over all matching readings; daily means are separate values for each day. They answer different questions, and averaging daily means need not equal the period mean when daily counts differ. None of the three operations provides an ungrouped overall mean: the natural-language layer rejects that request instead of silently adding daily or state grouping.
+
+Core availability means being able to run validated structured queries against PostgreSQL; inference availability means being able to turn a supported English question into a plan within the timeout. Separate checks for these capabilities are proposed, not implemented. Today /health/ready combines completed ingestion, existing observations, and model listing; it does not exercise inference. Once the API is running, /v1/query does not call the model.
 
 ## Persisted source, idempotent ingestion, and recovery
 
@@ -195,6 +225,8 @@ batches. Stable event and natural identities make that full replay idempotent:
 - Arrival order does not affect final analytics, which filter and group by
   `observed_at`.
 
+Idempotence applies to repeated delivery of the same event, not to distinct
+new measurements; it is not a general end-to-end exactly-once guarantee.
 No positional checkpoint is maintained. The measured complete 271,620-line
 replay took 18 seconds, which is acceptable for this local volume and simpler
 than a second recovery mechanism. PostgreSQL records source identity, expected
@@ -241,7 +273,7 @@ measurements that were never persisted cannot be reconstructed.
   configurations in the same demo database.
 - The interruption procedure resumes to the same count and digest as an
   uninterrupted load by rereading the same persisted file.
-- Fixture tests with hand-calculated values verify all three operations,
+- Fixture tests with hand-calculated values verify all five operations,
   including averages, counts, first/last contributing timestamps, grouping
   boundaries, and empty results.
 - Tests cover invalid timestamps, unsupported metric and operation, excessive
@@ -254,8 +286,8 @@ measurements that were never persisted cannot be reconstructed.
 - Natural-language requests invoke the Compose-managed local model, validate
   its structured plan through the same path, and return that interpretation,
   including request-time application-resolved relative-date context.
-- The explicit evaluation manifest contains 22 cases: 20 live endpoint
-  requests, of which four supported questions call the real model and 16 are
+- The explicit evaluation manifest contains 26 cases: 24 live natural-language endpoint
+  requests, of which eight supported questions call the real model and 16 are
   rejected before model use, plus two deterministic isolated fault-injection
   cases for invalid model output and model unavailability.
 - Clean-start verification exercises health, one structured query, one

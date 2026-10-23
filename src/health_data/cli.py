@@ -44,6 +44,14 @@ def demo_queries() -> None:
     end = settings.generation.window_end
     requests = (
         StructuredQuery(
+            operation=QueryOperation.USER_PERIOD_AVERAGE,
+            user_id="user-0001", start=start, end=end,
+        ),
+        StructuredQuery(
+            operation=QueryOperation.USER_PERIOD_RESTING_AVERAGE,
+            user_id="user-0001", start=start, end=end,
+        ),
+        StructuredQuery(
             operation=QueryOperation.DAILY_USER_AVERAGE,
             user_id="user-0001",
             start=start,

@@ -123,7 +123,18 @@ def main() -> None:
                     )
                 except (TypeError, ValueError):
                     passed = False
+            if status == 200:
+                structured_request = urllib.request.Request(
+                    f"{args.base_url.rstrip('/')}/v1/query",
+                    data=json.dumps(interpreted).encode(),
+                    headers={"Content-Type": "application/json"}, method="POST",
+                )
+                with urllib.request.urlopen(structured_request, timeout=60) as response:
+                    structured_result = json.loads(response.read())
+                passed = passed and result == structured_result
             observed = {
+                "error": payload.get("error"),
+                "result": result,
                 "interpreted_query": interpreted,
                 "temporal_interpretation": temporal,
             }

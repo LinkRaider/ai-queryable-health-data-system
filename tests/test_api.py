@@ -33,6 +33,25 @@ class AvailablePlanner:
 
 
 class StructuredQueryApiTests(unittest.TestCase):
+    def test_period_operations_are_documented_and_http_validated(self) -> None:
+        client = TestClient(create_app(TEST_DATABASE_URL))
+        schema = client.get("/openapi.json").json()
+        enum = schema["components"]["schemas"]["QueryOperation"]["enum"]
+        self.assertEqual(5, len(enum))
+        for operation in ("user_period_average", "user_period_resting_average"):
+            self.assertIn(operation, enum)
+            request = dict(operation=operation, user_id="user-0001",
+                           start="2026-01-05T00:00:00Z", end="2026-01-07T00:00:00Z")
+            response = client.post("/v1/query", json=request)
+            self.assertEqual(200, response.status_code, response.text)
+            row = response.json()["rows"][0]
+            self.assertNotIn("day", row)
+            self.assertGreater(row["observation_count"], 0)
+            self.assertIn("first_observed_at", row)
+            self.assertIn("last_observed_at", row)
+            for extra in ({"activity_state": "workout"}, {"user_id": None}):
+                self.assertEqual(422, client.post("/v1/query", json={**request, **extra}).status_code)
+
     @classmethod
     def setUpClass(cls) -> None:
         try:

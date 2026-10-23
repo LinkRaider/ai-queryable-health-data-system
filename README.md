@@ -60,8 +60,8 @@ flowchart LR
     Validator --> PostgreSQL[(PostgreSQL 16)]
     API --> Ollama[Ollama qwen2.5 1.5B]
     ModelInit[One-shot model init] --> Ollama
-    Bootstrap[One-shot bootstrap] --> Generator[Deterministic generator]
-    Generator -->|temporary file + atomic rename| JSONL[(JSONL source volume)]
+    Bootstrap[One-shot bootstrap] -->|only when no published source exists| Generator[Deterministic generator]
+    Generator -->|publish file, then completion metadata| JSONL[(JSONL + metadata source volume)]
     JSONL -->|full replay| Bootstrap
     Bootstrap -->|idempotent batches| PostgreSQL
 ```
@@ -79,11 +79,12 @@ Compose contains five purposeful services:
 - `api` starts only after bootstrap and model preparation finish. It serves
   health, structured analytics, natural-language analytics, and OpenAPI.
 
-There is no broker. Redpanda and Kafka are intentionally rejected alternatives,
-not running components. For a deterministic seven-day batch, a broker adds
-deployment and recovery paths without improving the demonstrated guarantees.
+For this bounded seven-day input, publishing a file and replaying transactional
+batches keeps ingestion and recovery simple. Continuous arrivals would be a
+different requirement; a broker would need a concrete benefit to justify its
+operational cost.
 PostgreSQL is both storage and analytical engine because this volume and the
-three access patterns fit indexed relational aggregation.
+bounded access patterns fit indexed relational aggregation.
 
 ## Data contract and synthetic patterns
 
@@ -107,7 +108,8 @@ observations.
 Determinism makes the synthetic fixture reproducible for review and tests. It
 does not imply that missing measurements from real people can be regenerated.
 
-The observed sample contains 271,620 events. Representative profiles,
+The 50 synthetic users produce 271,620 observations in the default seven-day
+sample; users and observations are different counts. Representative profiles,
 state-level means, a full local-day timeline, and an explicit 74.7-minute
 no-reading gap are in
 [`docs/synthetic-sample.md`](docs/synthetic-sample.md).
@@ -124,6 +126,9 @@ validated and reused without calling the event generator. An incompatible or
 corrupt published source fails explicitly; a lone file from an interrupted
 initial publication is not considered complete and may be regenerated.
 
+Idempotent means that retrying the same event leaves the database with the
+same observation, rather than adding another copy. A new measurement is a new
+event, not a retry. This is not a general end-to-end exactly-once guarantee.
 Every ingestion attempt reads that JSONL from the beginning. There is no
 position checkpoint: the measured full replay is small enough that stable
 event identity and idempotent inserts are simpler. Each batch commits
@@ -140,22 +145,17 @@ The demo database accepts one source configuration. Another seed, window,
 population, generator version, or source content requires an isolated
 database; dataset migration and coexistence are outside scope.
 
-The recovery harness configures a post-commit delay, observes 6,000 durable
-rows, then sends `SIGKILL`. It then replays the same persisted file from line
-one:
+The recovery harness interrupts ingestion after observing committed progress,
+then replays the same retained file from line one and compares the final rows
+with an uninterrupted load:
 
 ```bash
 ./scripts/test_interrupted_ingestion.sh
 ```
 
-This proves recovery with earlier batches already committed. Polling does not
-identify whether the process had opened its next transaction at the exact
-signal instant, so no claim is made about interruption inside or outside that
-next transaction. The latest run reused source
-digest `8a96006e1229c3fbb394603aa01581ac564879115fc1f4234c07a6375e1e7f09`,
-processed all 271,620 lines, and inserted the remaining 265,620 rows in 24
-seconds. Recovered and uninterrupted databases both contained 271,620 events
-with digest `2791d4a9a5996490ff6191256d36ca5a`. Full evidence is in
+The recorded run demonstrates recovery with earlier batches already committed.
+Polling does not establish whether another transaction was open at the signal
+instant. Counts, digests, and timings remain in
 [`docs/interruption-verification.md`](docs/interruption-verification.md).
 
 The named volume survives normal container replacement; it is not a backup,
@@ -169,17 +169,27 @@ This is the second area of deliberate depth: explicit semantics when sampling
 is irregular and data can be absent.
 
 Every range is half-open: `start <= observed_at < end`. Timestamps require an
-offset, ranges are limited to 31 days, and responses are limited to 1,000 rows.
+offset and ranges are limited to 31 days. This is a request guardrail, not
+the dataset horizon: the seven-day sample is never filled with invented
+readings when a query spans more dates. Responses allow row_limit from 1 to
+1,000 (default 1,000).
 An empty match returns HTTP 200 with an empty `rows` array. Oversized results
 return HTTP 413 rather than silent truncation. Unsupported operations, metrics,
-dimensions, users, and malformed timestamps return structured errors.
+dimensions, users, and malformed timestamps return structured errors. Error
+responses should explain the failure without leaking database credentials or
+internal implementation details.
 
-Only three operations exist. Every reported mean weights each recorded
-observation equally. It is not a time-weighted mean and does not give each user
+Five operations exist. Every reported mean is the arithmetic mean of
+the recorded observations: add their values and divide by their count, so each
+reading contributes equally. It is not a time-weighted mean and does not give each user
 equal weight; state-dependent sampling cadence therefore affects it. Responses
 make this explicit with `aggregation_basis: "recorded_observations"` and
 `mean_recorded_bpm`.
 
+- `user_period_average`: one arithmetic mean of all recorded observations of
+  one user over the whole interval, without daily or state grouping;
+- `user_period_resting_average`: one arithmetic mean of that user's `rest`
+  observations over the whole interval, without daily grouping;
 - `daily_user_average`: mean of one user's recorded resting observations,
   grouped by local day, with the first and last contributing timestamps;
 - `activity_state_comparison`: mean and count of one user's recorded
@@ -187,6 +197,10 @@ make this explicit with `aggregation_basis: "recorded_observations"` and
 - `population_daily_average`: mean of all recorded observations, observation
   count, contributing-user count, and first and last contributing timestamps
   by UTC day.
+
+The limit counts aggregated output rows, not raw measurements. For example, four activity-state groups with row_limit=2 return HTTP 413, with no partial result. The default and maximum row_limit is 1,000; the current four-state or daily operations over at most 31 days cannot normally reach that ceiling.
+
+An overall-period mean is one value over all matching readings; daily means are separate values for each day. They answer different questions, and averaging daily means need not equal the period mean when daily counts differ. None of the three operations provides an ungrouped overall mean: the natural-language layer rejects that request instead of silently adding daily or state grouping.
 
 `observation_count`, `first_observed_at`, and `last_observed_at` describe only
 the readings that contributed after all filters. More readings do not
@@ -198,6 +212,27 @@ reported because the measurements alone provide no defensible denominator.
 
 SQL operation and grouping fragments are application-owned constants. Every
 request value is a bound parameter. No route accepts arbitrary SQL.
+
+Whole-period average (all states):
+
+```bash
+curl --fail --request POST http://127.0.0.1:8000/v1/query \
+  --header 'Content-Type: application/json' \
+  --data '{"operation":"user_period_average","user_id":"user-0001","start":"2026-01-05T00:00:00Z","end":"2026-01-12T00:00:00Z"}'
+```
+
+Use `user_period_resting_average` for a rest-only period mean. Both return
+zero or one row with `mean_recorded_bpm`, `observation_count`, and first/last
+contributing timestamps; `start` and `end` describe the requested interval.
+The mean is over individual readings, not an average of daily means. With
+three rest readings averaging 60 BPM on one day and one at 70 on another,
+the period rest mean is 62.5 BPM, not 65 BPM. No schema migration is needed.
+
+Natural-language examples: “What was user-0001's average heart rate last week?”
+and “What was user-0001's average resting heart rate last week?” select the
+all-state and rest-only period operations respectively. Add “each day” to the
+resting question to request `daily_user_average`, whose semantics are unchanged.
+Unsupported hourly/device grouping, maximum, and median remain rejected.
 
 Daily resting average:
 
@@ -245,7 +280,9 @@ curl --fail --request POST http://127.0.0.1:8000/v1/query \
 This is Bonus 2, implemented as a constrained interface over the same validated
 structured-query path rather than a third claimed depth area.
 
-Ollama receives a question and returns only a candidate JSON plan for the three
+The small local model avoids paid API keys and keeps inference local. Its
+JSON output is validated before the query engine is called.
+Ollama receives a question and returns only a candidate JSON plan for the five
 operations. The application then:
 
 1. accepts either two offset-aware RFC 3339 timestamps, including fractional
@@ -267,7 +304,8 @@ ambiguous scope is rejected instead of inferred. Model unavailability returns
 HTTP 503. Every successful response includes `interpreted_query` and
 `temporal_interpretation`, including the resolved range, reference time, and
 time zone, beside the result. First-person questions such as “my heart rate”
-remain rejected because authentication does not provide a user identity.
+without an explicit user ID are rejected because authentication is not
+implemented and there is no authenticated identity to resolve.
 This validator deliberately recognizes a constrained vocabulary; it rejects
 known incompatibilities and does not claim general understanding of arbitrary
 natural language.
@@ -295,13 +333,15 @@ Run the evaluation manifest:
 python3 scripts/evaluate_natural_language.py
 ```
 
-The manifest contains 22 cases. Its live run sends 20 endpoint requests: four
+The manifest contains 26 cases. Its live run sends 24 natural-language requests: eight
 supported questions reach the real Ollama model, while 16 ambiguous, invalid,
 or unsupported questions are rejected by application validation before a
 model call. The remaining two cases—invalid model output and model
 unavailability—are deterministic fault-injection tests and are not live
 Ollama calls. Further isolated checks cover fractional seconds, conflicting
 date expressions, malformed JSON, and invented users and dates.
+
+Core availability means being able to run validated structured queries against PostgreSQL; inference availability means being able to turn a supported English question into a plan within the timeout. Separate checks for these capabilities are proposed, not implemented. Today /health/ready combines completed ingestion, existing observations, and model listing; it does not exercise inference. Once the API is running, /v1/query does not call the model.
 
 The model client has a 30-second timeout. The first inference after startup can
 exceed it and return HTTP 503; a later request with the model loaded can
@@ -327,11 +367,13 @@ python3 -m venv .venv
 docker rm --force health-data-test-postgres
 ```
 
-The updated run passed 65 tests in 17.299 seconds. They include JSONL
+The recorded ARM64 run passed 65 tests in 17.299 seconds. They include JSONL
 round-tripping and atomic publication, source reuse and incompatibility,
 duplicate/conflicting/out-of-order ingestion, post-commit retry, and
-hand-calculated answers for all three operations including contributing
-timestamp bounds. The empty- and preserved-state Compose flow is reproducible
+hand-calculated answers for the original three operations including contributing
+timestamp bounds. The period-average extension has separate current evidence in
+[docs/period-average-verification.md](docs/period-average-verification.md).
+The empty- and preserved-state Compose flow is reproducible
 with:
 
 ```bash
@@ -343,9 +385,12 @@ complete system, checks both endpoints and a rejection, measures a full replay,
 then restarts Compose with its volumes preserved and confirms the row count is
 unchanged.
 
+The English [interview defense](docs/interview-defense.md) and
+[code explanation](docs/code-explanation.md) describe the same current behavior.
+
 ## Measured verification
 
-The updated empty-persisted-state run completed in 67 seconds on ARM64 with
+The recorded ARM64 empty-persisted-state run completed in 67 seconds on ARM64 with
 cached image layers but empty PostgreSQL, source, and Ollama volumes. It
 downloaded the model, published and stored 271,620 observations, returned
 checked structured and natural-language responses, and rejected an ambiguous
@@ -370,22 +415,23 @@ not claimed as a no-cache fresh-VM time.
 - One constrained heart-rate table provides stronger checks and clearer
   indexes than a generic entity-attribute-value schema; adding another metric
   requires a deliberate migration.
-- PostgreSQL is sufficient at demo volume; high-rate longitudinal production
-  data would require retention, partitioning, compression, and load evidence.
+- One indexed PostgreSQL table fits this sample and its query patterns.
+  Partitioning would add maintenance without a demonstrated benefit here;
+  larger histories need measurements of query pruning and retention needs.
 - UUIDv5 and a natural unique key spend extra index space to defend against
   both replay and identity-algorithm defects.
 - Relative dates are intentionally narrow: `last week` means the previous ISO
   week relative to the real request time in UTC. Other shorthand is rejected
   rather than guessed, and an out-of-snapshot range returns an empty result.
-- The 1.5B local model keeps data local and avoids paid credentials, but its
-  image/model download dominates first startup and its interpretation quality
-  is bounded by the explicit validator.
+- The 1.5B local model keeps inference local and avoids paid API keys.
+  Application validation checks its candidate plan before database execution.
 
 ## Development process and review boundaries
 
 Initial scaffolding, implementation drafts, test cases, Compose wiring, and
 documentation structure were delegated. Runtime and test claims in this README
-are limited to commands recorded in `docs/verification.md`. Corrections
+are limited to the historical record in `docs/verification.md` and the current
+extension record in `docs/period-average-verification.md`. Corrections
 included a Python-version dependency mismatch, a packaged schema path, Compose
 image ownership, API dependency resolution, and two rejected local-model
 plans.
@@ -402,6 +448,13 @@ judgment about what can actually be recovered and what the evidence proves.
 Deterministic generation remains a reproducibility aid for tests, not a
 recovery mechanism for real-world measurements.
 
+I also challenged rejecting a reasonable whole-period user average. The
+implemented extension answers it with explicit all-reading and rest-only
+operations, preserves existing daily-rest semantics, and tests unequal daily
+counts so an average of daily means cannot silently replace the intended
+reading-level calculation. Implementation was delegated; defining the meaning
+and checking counterexamples remained review decisions.
+
 Review checkpoints covered scope, synthetic-pattern plausibility, query and
 error boundaries, recovery evidence, and final claims. This repository records
 runtime evidence, not reviewer identities or approvals. Clinical validity,
@@ -410,8 +463,9 @@ domain-owner review and environment-specific evidence.
 
 ## Limitations
 
-- A no-cache new VM and AMD64 were not available for execution; ARM64 and
-  empty named volumes were tested.
+- The historical author record covers ARM64 and empty named volumes. The
+  period extension was exercised on AMD64 with a documented environment-only
+  Compose adaptation; neither record establishes no-cache fresh-VM deployment.
 - There is no authentication, authorization, TLS termination, rate limiting,
   per-user tenancy boundary, or audit log.
 - There is no connection pool, horizontal API deployment, partition lifecycle,
@@ -427,7 +481,7 @@ domain-owner review and environment-specific evidence.
   weighting is claimed.
 - First/last timestamps bound contributing observations but do not prove
   gap-free coverage. Missing days are omitted, never represented as zero BPM.
-- The API supports three intentionally narrow operations and one metric.
+- The API supports five intentionally narrow operations and one metric.
 - Image tags and Python direct dependencies are pinned, but image digests and
   the complete transitive Python dependency graph are not locked.
 - The live model can still emit an invalid plan; that path is rejected and
@@ -435,15 +489,4 @@ domain-owner review and environment-specific evidence.
 
 ## If you had two more weeks, what would you build next?
 
-Before any public exposure, I would establish the security baseline with
-authentication, per-user authorization, TLS, rate limiting, and audit logging,
-then improve readiness and the reliability of the first model inference. I
-would expand the user population, historical window, and seed variation to
-measure actual limits, using those results and observed access patterns to
-decide whether PostgreSQL partitioning and retention, Parquet, or a lakehouse
-are justified. I would also explore continuous production ingestion and
-streaming, considering Kafka only if retained replay, backpressure, and
-independent consumers become concrete requirements; it is not needed for the
-current batch. Within two weeks I would prioritize validation and tested
-backup and restore paths rather than claim delivery of every proposal. These
-are proposed extensions, not features claimed by the current implementation.
+These are proposed priorities, not implemented features: first I would review the threat model and secure access before public exposure with authentication to establish identity, per-person authorization, TLS, rate limiting, and access auditing, while improving model reliability through latency measurements, warm-up, diagnostics, and separate core and inference readiness checks. Next I would increase the number of synthetic users, extend the time horizon, and vary seeds in isolated databases, measuring ingestion throughput, replay cost, query latency, and storage capacity before choosing focused improvements. PostgreSQL remains sufficient for the current batch; I would consider time-based partitioning and retention only when measured pruning or lifecycle needs justify them, Parquet for large analytical scans or archival, and a lakehouse only for a real shared data-lake or multiple-engine requirement. Only if the target changes to continuous arrivals would I add an ongoing producer and streaming path, considering Kafka for retained replay, buffering and backpressure, and independent consumers, with retention sized to recovery needs and storage budget and idempotent database writes before offset commits; it is not needed for this batch demo. Within two weeks I would keep acceptance work focused on readiness and adversarial/recovery checks, a cache-free cross-platform CI run, and a backup/restore rehearsal rather than promise every production concern.

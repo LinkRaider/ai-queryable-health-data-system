@@ -169,6 +169,10 @@ When the application appends a "Resolved time range" line, copy those
 timestamps exactly. The application, not the model, resolves relative dates.
 
 Supported operation mapping:
+- user_period_average: one mean of ALL recorded observations of one user over
+  the entire interval, without daily or activity-state grouping.
+- user_period_resting_average: one mean of only REST observations of one user
+  over the entire interval, without daily grouping. Use this for resting requests.
 - daily_user_average: mean of one user's recorded RESTING heart-rate observations,
   grouped by local day.
 - activity_state_comparison: mean of one user's recorded heart-rate observations,
@@ -179,6 +183,16 @@ Supported operation mapping:
 The only metric is heart_rate. Do not infer missing users or timestamps.
 
 Examples:
+Question: What was user-0001's average heart rate from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?
+Output: {"operation":"user_period_average","user_id":"user-0001","metric":"heart_rate","start":"2026-01-05T00:00:00Z","end":"2026-01-07T00:00:00Z"}
+Question: What was user-0001's average resting heart rate from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?
+Output: {"operation":"user_period_resting_average","user_id":"user-0001","metric":"heart_rate","start":"2026-01-05T00:00:00Z","end":"2026-01-07T00:00:00Z"}
+Question: What was user-0001's average resting heart rate each day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?
+Output: {"operation":"daily_user_average","user_id":"user-0001","metric":"heart_rate","start":"2026-01-05T00:00:00Z","end":"2026-01-07T00:00:00Z"}
+Daily wording (each day, per day, daily) always requires daily_user_average for
+resting user questions, NEVER user_period_resting_average. Without daily or
+activity-state grouping, choose the corresponding user_period operation.
+
 Question: Compare user-0042's average heart rate across activity states from
 2026-02-01T00:00:00Z to 2026-02-02T00:00:00Z.
 Output: {"operation":"activity_state_comparison","user_id":"user-0042",
@@ -320,15 +334,10 @@ def _validate_question_scope(question: str) -> None:
         raise UnsupportedOperationError(
             "population averages require explicit daily grouping"
         )
-    if (
-        USER_PATTERN.search(question)
-        and "rest" in normalised
-        and AVERAGE_INTENT_PATTERN.search(question)
-        and not daily_grouping
+    if not daily_grouping and not activity_state_grouping and (
+        specific_activity_states - {"rest", "resting"}
     ):
-        raise UnsupportedOperationError(
-            "resting averages require explicit daily grouping"
-        )
+        raise UnsupportedOperationError("period averages support only all states or rest")
     if (
         USER_PATTERN.search(question)
         and "rest" in normalised
@@ -428,12 +437,25 @@ def _planner_question(
     question: str,
     temporal: TemporalInterpretation,
 ) -> str:
-    if temporal.kind == "explicit_range":
-        return question
-    return (
-        f"{question}\nResolved time range: from "
-        f"{_render_timestamp(temporal.start)} to {_render_timestamp(temporal.end)}."
-    )
+    rendered = question
+    if temporal.kind != "explicit_range":
+        rendered += (
+            f"\nResolved time range: from {_render_timestamp(temporal.start)} "
+            f"to {_render_timestamp(temporal.end)}."
+        )
+    if (
+        USER_PATTERN.search(question)
+        and AVERAGE_INTENT_PATTERN.search(question)
+        and not DAILY_GROUPING_PATTERN.search(question)
+        and not ACTIVITY_STATE_GROUPING_PATTERN.search(question)
+    ):
+        resting = bool(SPECIFIC_ACTIVITY_STATE_PATTERN.search(question))
+        operation = "user_period_resting_average" if resting else "user_period_average"
+        rendered += (
+            f"\nRequired grouping: NONE (one whole-period mean). "
+            f"Required operation: {operation}. Do not substitute daily_user_average."
+        )
+    return rendered
 
 
 def validate_question(
@@ -470,6 +492,8 @@ def interpret_model_plan(
 
     mentioned_users = USER_PATTERN.findall(question)
     if plan.operation in {
+        QueryOperation.USER_PERIOD_AVERAGE,
+        QueryOperation.USER_PERIOD_RESTING_AVERAGE,
         QueryOperation.DAILY_USER_AVERAGE,
         QueryOperation.ACTIVITY_STATE_COMPARISON,
     }:
@@ -483,6 +507,21 @@ def interpret_model_plan(
         )
 
     normalised = question.lower()
+    if plan.operation in {
+        QueryOperation.USER_PERIOD_AVERAGE,
+        QueryOperation.USER_PERIOD_RESTING_AVERAGE,
+    }:
+        states = {match.lower() for match in SPECIFIC_ACTIVITY_STATE_PATTERN.findall(question)}
+        resting = bool(states & {"rest", "resting"})
+        if (
+            AVERAGE_INTENT_PATTERN.search(question) is None
+            or DAILY_GROUPING_PATTERN.search(question)
+            or ACTIVITY_STATE_GROUPING_PATTERN.search(question)
+            or states - {"rest", "resting"}
+            or resting != (plan.operation is QueryOperation.USER_PERIOD_RESTING_AVERAGE)
+            or any(term in normalised for term in ("population", "all users", "across users"))
+        ):
+            raise UnsupportedOperationError("period plan does not preserve grouping or activity intent")
     if (
         plan.operation is QueryOperation.DAILY_USER_AVERAGE
         and (
