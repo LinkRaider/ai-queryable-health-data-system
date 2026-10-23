@@ -200,7 +200,7 @@ make this explicit with `aggregation_basis: "recorded_observations"` and
 
 The limit counts aggregated output rows, not raw measurements. For example, four activity-state groups with row_limit=2 return HTTP 413, with no partial result. The default and maximum row_limit is 1,000; the current four-state or daily operations over at most 31 days cannot normally reach that ceiling.
 
-An overall-period mean is one value over all matching readings; daily means are separate values for each day. They answer different questions, and averaging daily means need not equal the period mean when daily counts differ. None of the three operations provides an ungrouped overall mean: the natural-language layer rejects that request instead of silently adding daily or state grouping.
+The period average is calculated directly from all matching observations, not from previously calculated daily averages. Each reading contributes equally, including when days have different observation counts. The two user-period operations return one value for the interval; daily operations return separate values for each contributing day.
 
 `observation_count`, `first_observed_at`, and `last_observed_at` describe only
 the readings that contributed after all filters. More readings do not

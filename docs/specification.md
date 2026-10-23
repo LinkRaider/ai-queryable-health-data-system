@@ -81,7 +81,7 @@ The generator will produce distinguishable patterns:
   waking hours; workouts occur as occasional bounded bursts.
 - State changes alter both value distribution and sampling cadence.
 - Nominal sampling intervals are approximately five minutes for sleep, three
-  minutes for rest, 60–90 seconds for ordinary activity, and 15–30 seconds for
+  minutes for rest, 60–90 seconds for ordinary activity, and 15–25 seconds for
   workouts.
 - Deterministic jitter prevents perfectly regular timestamps.
 - Explicit device-off windows contain no observations and are long enough to
@@ -195,7 +195,7 @@ It validates these recognized lexical cues before and after planning and
 rejects detected mismatches. This is a bounded contract, not a claim of general
 natural-language understanding.
 
-An overall-period mean is one value over all matching readings; daily means are separate values for each day. They answer different questions, and averaging daily means need not equal the period mean when daily counts differ. None of the three operations provides an ungrouped overall mean: the natural-language layer rejects that request instead of silently adding daily or state grouping.
+The period average is calculated directly from all matching observations, not from previously calculated daily averages. Each reading contributes equally, including when days have different observation counts. The two user-period operations return one value for the requested interval; daily operations return a separate value for each contributing day.
 
 Core availability means being able to run validated structured queries against PostgreSQL; inference availability means being able to turn a supported English question into a plan within the timeout. Separate checks for these capabilities are proposed, not implemented. Today /health/ready combines completed ingestion, existing observations, and model listing; it does not exercise inference. Once the API is running, /v1/query does not call the model.
 
