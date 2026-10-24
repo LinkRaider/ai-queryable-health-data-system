@@ -17,6 +17,7 @@ class Settings:
     source_path: Path
     batch_size: int
     batch_delay_seconds: float
+    max_hold_seconds: int
     ollama_url: str
     ollama_model: str
     ollama_timeout_seconds: float
@@ -25,12 +26,15 @@ class Settings:
 
 def load_settings() -> Settings:
     window_start = datetime.fromisoformat(
-        os.getenv("HEALTH_DATA_WINDOW_START", "2026-01-05T00:00:00+00:00")
+        os.getenv("HEALTH_DATA_WINDOW_START", "2026-10-05T00:00:00+00:00")
     )
+    max_hold_seconds = int(os.getenv("HEALTH_DATA_MAX_HOLD_SECONDS", "360"))
+    if max_hold_seconds <= 0:
+        raise ValueError("HEALTH_DATA_MAX_HOLD_SECONDS must be positive")
     generation = GenerationConfig(
         seed=int(os.getenv("HEALTH_DATA_SEED", "20261019")),
         window_start=window_start,
-        days=int(os.getenv("HEALTH_DATA_DAYS", "7")),
+        days=int(os.getenv("HEALTH_DATA_DAYS", "21")),
         user_count=int(os.getenv("HEALTH_DATA_USER_COUNT", "50")),
     )
     return Settings(
@@ -49,6 +53,7 @@ def load_settings() -> Settings:
         batch_delay_seconds=float(
             os.getenv("HEALTH_DATA_BATCH_DELAY_SECONDS", "0")
         ),
+        max_hold_seconds=max_hold_seconds,
         ollama_url=os.getenv("HEALTH_DATA_OLLAMA_URL", "http://ollama:11434"),
         ollama_model=os.getenv("HEALTH_DATA_OLLAMA_MODEL", "qwen2.5:1.5b"),
         ollama_timeout_seconds=float(

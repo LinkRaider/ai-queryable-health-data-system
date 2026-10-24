@@ -1,4 +1,11 @@
-# Whole-period user averages: current verification
+# Whole-period user averages: historical extension verification
+
+This record used the earlier seven-day January 2026 default. Its test counts,
+model results, and timings remain evidence for that revision; they are not new
+measurements of the current October 2026 source.
+It also predates the time-weighted query contract. Arithmetic means,
+`mean_recorded_bpm`, observation counts, and contributing timestamp fields
+below are preserved as historical evidence, not current interface claims.
 
 The API now has **five operations**. `user_period_average` returns one
 arithmetic mean over all of one user's matching readings;

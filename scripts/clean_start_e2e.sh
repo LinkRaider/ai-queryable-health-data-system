@@ -47,8 +47,8 @@ structured_response="$(
       "operation": "activity_state_comparison",
       "user_id": "user-0001",
       "metric": "heart_rate",
-      "start": "2026-01-05T00:00:00Z",
-      "end": "2026-01-12T00:00:00Z"
+      "start": "2026-10-05T00:00:00Z",
+      "end": "2026-10-26T00:00:00Z"
     }' \
     http://127.0.0.1:8000/v1/query
 )"
@@ -57,17 +57,36 @@ natural_language_response="$(
     --request POST \
     --header 'Content-Type: application/json' \
     --data '{
-      "question": "What was user-0001'\''s average resting heart rate each day from 2026-01-05T00:00:00Z to 2026-01-12T00:00:00Z?"
+      "question": "What was user-0001'\''s average resting heart rate each day from 2026-10-05T00:00:00Z to 2026-10-26T00:00:00Z?"
     }' \
     http://127.0.0.1:8000/v1/query/natural-language
 )"
+validate_weighted_response() {
+  local response="$1"
+  local nested="${2:-false}"
+  python3 -c '
+import json
+import sys
+
+payload = json.load(sys.stdin)
+if sys.argv[1] == "true":
+    payload = payload["result"]
+assert payload["aggregation_basis"] == "time_weighted_observation_hold"
+assert payload["max_hold_seconds"] == 360
+assert isinstance(payload["quality"], dict)
+assert all("time_weighted_mean_bpm" in row for row in payload["rows"])
+assert all("mean_recorded_bpm" not in row for row in payload["rows"])
+' "$nested" <<<"$response"
+}
+validate_weighted_response "$structured_response"
+validate_weighted_response "$natural_language_response" true
 rejected_status="$(
   curl --silent \
     --output "$temporary_directory/rejected.json" \
     --write-out '%{http_code}' \
     --request POST \
     --header 'Content-Type: application/json' \
-    --data '{"question": "What was the average heart rate from 2026-01-05T00:00:00Z to 2026-01-12T00:00:00Z?"}' \
+    --data '{"question": "What was the average heart rate from 2026-10-05T00:00:00Z to 2026-10-26T00:00:00Z?"}' \
     http://127.0.0.1:8000/v1/query/natural-language
 )"
 if [[ "$rejected_status" != "422" ]]; then

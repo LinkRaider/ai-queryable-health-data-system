@@ -31,8 +31,8 @@ class ActivityState(StrEnum):
 @dataclass(frozen=True, slots=True)
 class GenerationConfig:
     seed: int = 20261019
-    window_start: datetime = datetime(2026, 1, 5, tzinfo=UTC)
-    days: int = 7
+    window_start: datetime = datetime(2026, 10, 5, tzinfo=UTC)
+    days: int = 21
     user_count: int = 50
 
     def __post_init__(self) -> None:

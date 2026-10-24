@@ -1,5 +1,9 @@
 # Interrupted ingestion verification
 
+This is a historical run against the earlier seven-day January 2026 default.
+Its counts and timings are retained as observed evidence from that revision,
+not as measurements of the current October 2026 source.
+
 Command executed:
 
 ```bash

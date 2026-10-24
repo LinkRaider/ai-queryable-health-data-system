@@ -1,10 +1,10 @@
 # AI-Queryable Health Data System
 
 A small end-to-end system that generates a fixed, deterministic synthetic
-heart-rate snapshot for 50 users over seven days, atomically publishes it as
+heart-rate snapshot for 50 users over 21 days, atomically publishes it as
 JSONL, replays that persisted source into PostgreSQL, and exposes bounded
 structured and natural-language analytics.
-It is a reproducible historical demo, not a continuously updating or real-time
+It is a reproducible fixed synthetic demo, not a continuously updating or real-time
 health service.
 
 The generated patterns are for an engineering demonstration. They are not
@@ -79,7 +79,7 @@ Compose contains five purposeful services:
 - `api` starts only after bootstrap and model preparation finish. It serves
   health, structured analytics, natural-language analytics, and OpenAPI.
 
-For this bounded seven-day input, publishing a file and replaying transactional
+For this bounded 21-day input, publishing a file and replaying transactional
 batches keeps ingestion and recovery simple. Continuous arrivals would be a
 different requirement; a broker would need a concrete benefit to justify its
 operational cost.
@@ -99,7 +99,8 @@ The full contract and acceptance criteria are in
 - one of `sleep`, `rest`, `ordinary_activity`, or `workout`.
 
 The fixed default configuration is seed `20261019`, 50 users, and
-`2026-01-05T00:00:00Z` through `2026-01-12T00:00:00Z`. Profiles vary by time
+`2026-10-05T00:00:00Z` through `2026-10-26T00:00:00Z`, using a half-open
+interval that includes 5–25 October. Profiles vary by time
 zone, resting baseline, schedule, activity response, workout frequency, and
 device-off tendency. State changes affect values and sampling cadence;
 deterministic jitter avoids clockwork intervals; device-off intervals emit no
@@ -107,10 +108,12 @@ observations.
 
 Determinism makes the synthetic fixture reproducible for review and tests. It
 does not imply that missing measurements from real people can be regenerated.
+Every value is synthetic, including dates that are in the future when the
+demonstration is prepared; they are not measurements already collected.
 
-The 50 synthetic users produce 271,620 observations in the default seven-day
+The 50 synthetic users produce 814,492 observations in the default 21-day
 sample; users and observations are different counts. Representative profiles,
-state-level means, a full local-day timeline, and an explicit 74.7-minute
+state-level means, a full local-day timeline, and an explicit 83.9-minute
 no-reading gap are in
 [`docs/synthetic-sample.md`](docs/synthetic-sample.md).
 
@@ -170,7 +173,7 @@ is irregular and data can be absent.
 
 Every range is half-open: `start <= observed_at < end`. Timestamps require an
 offset and ranges are limited to 31 days. This is a request guardrail, not
-the dataset horizon: the seven-day sample is never filled with invented
+the dataset horizon: the 21-day sample is never filled with invented
 readings when a query spans more dates. Responses allow row_limit from 1 to
 1,000 (default 1,000).
 An empty match returns HTTP 200 with an empty `rows` array. Oversized results
@@ -179,36 +182,53 @@ dimensions, users, and malformed timestamps return structured errors. Error
 responses should explain the failure without leaking database credentials or
 internal implementation details.
 
-Five operations exist. Every reported mean is the arithmetic mean of
-the recorded observations: add their values and divide by their count, so each
-reading contributes equally. It is not a time-weighted mean and does not give each user
-equal weight; state-dependent sampling cadence therefore affects it. Responses
-make this explicit with `aggregation_basis: "recorded_observations"` and
-`mean_recorded_bpm`.
+Five operations exist. Every reported `time_weighted_mean_bpm` uses a
+bounded constant-hold approximation. A reading represents its value from its
+timestamp until the earliest of the next reading for the same
+user/device/metric, `MAX_HOLD_SECONDS`, or the request end. The default and
+Compose setting is `HEALTH_DATA_MAX_HOLD_SECONDS=360`. This is an explicit
+engineering assumption about how long a reading remains usable, not a clinical
+rule. There is no linear interpolation, unlimited extrapolation, or zero fill.
+Responses identify this as
+`aggregation_basis: "time_weighted_observation_hold"` and expose the applied
+`max_hold_seconds`.
 
-- `user_period_average`: one arithmetic mean of all recorded observations of
-  one user over the whole interval, without daily or state grouping;
-- `user_period_resting_average`: one arithmetic mean of that user's `rest`
-  observations over the whole interval, without daily grouping;
-- `daily_user_average`: mean of one user's recorded resting observations,
-  grouped by local day, with the first and last contributing timestamps;
-- `activity_state_comparison`: mean and count of one user's recorded
-  observations by activity state;
-- `population_daily_average`: mean of all recorded observations, observation
-  count, contributing-user count, and first and last contributing timestamps
-  by UTC day.
+The next reading is found before any activity-state filter is applied, so a
+rest interval stops when a later workout reading arrives. The immediately
+preceding reading can carry into the request only for the validity it still has
+left from its original timestamp. Intervals are clipped to `[start,end)` and
+split at local-day or UTC-day boundaries using real instants, including
+daylight-saving transitions.
+
+- `user_period_average`: one time-weighted mean of all valid intervals for one
+  user over the whole request;
+- `user_period_resting_average`: one mean of intervals originating from that
+  user's `rest` readings;
+- `daily_user_average`: the same rest-only calculation grouped by the user's
+  local day;
+- `activity_state_comparison`: intervals grouped by the state of their
+  originating reading;
+- `population_daily_average`: a UTC-day mean pooled over valid user-seconds,
+  not an average of per-user means.
 
 The limit counts aggregated output rows, not raw measurements. For example, four activity-state groups with row_limit=2 return HTTP 413, with no partial result. The default and maximum row_limit is 1,000; the current four-state or daily operations over at most 31 days cannot normally reach that ceiling.
 
-The period average is calculated directly from all matching observations, not from previously calculated daily averages. Each reading contributes equally, including when days have different observation counts. The two user-period operations return one value for the interval; daily operations return separate values for each contributing day.
+Each result row includes the duration that actually contributed:
+`contributing_duration_seconds` for individual operations or
+`contributing_user_seconds` plus `contributing_user_count` for population
+days. A separate top-level `quality` object remains present even when `rows`
+is empty. Individual quality reports requested, observed and unobserved
+seconds, gap count and largest gap using availability of any heart-rate
+reading before a rest filter. Workout time excluded from a resting mean is
+therefore not mislabeled as missing device data.
 
-`observation_count`, `first_observed_at`, and `last_observed_at` describe only
-the readings that contributed after all filters. More readings do not
-necessarily mean better time coverage because cadence varies by state. The
-span from first to last reading does not prove there were no gaps between
-them. Missing groups stay absent: the API never invents a zero mean, and a day
-without rows is not a day observed at zero BPM. No coverage percentage is
-reported because the measurements alone provide no defensible denominator.
+Population quality calculates gaps independently per expected user from the
+`users` table. It reports requested, observed and unobserved user-seconds,
+expected and observed user counts, total gap count, and the largest individual
+gap. One person's reading never covers another person's time. These are
+availability indicators under the maximum-hold rule, not physiological
+coverage. Missing groups stay absent: the API never invents a zero mean, and a
+fully missing request still returns quality metadata with `rows: []`.
 
 SQL operation and grouping fragments are application-owned constants. Every
 request value is a bound parameter. No route accepts arbitrary SQL.
@@ -218,15 +238,14 @@ Whole-period average (all states):
 ```bash
 curl --fail --request POST http://127.0.0.1:8000/v1/query \
   --header 'Content-Type: application/json' \
-  --data '{"operation":"user_period_average","user_id":"user-0001","start":"2026-01-05T00:00:00Z","end":"2026-01-12T00:00:00Z"}'
+  --data '{"operation":"user_period_average","user_id":"user-0001","start":"2026-10-05T00:00:00Z","end":"2026-10-26T00:00:00Z"}'
 ```
 
 Use `user_period_resting_average` for a rest-only period mean. Both return
-zero or one row with `mean_recorded_bpm`, `observation_count`, and first/last
-contributing timestamps; `start` and `end` describe the requested interval.
-The mean is over individual readings, not an average of daily means. With
-three rest readings averaging 60 BPM on one day and one at 70 on another,
-the period rest mean is 62.5 BPM, not 65 BPM. No schema migration is needed.
+zero or one row with `time_weighted_mean_bpm` and
+`contributing_duration_seconds`; `start` and `end` describe the requested
+interval. The mean is calculated directly from held value-seconds, not from
+daily means. No schema migration is needed.
 
 Natural-language examples: “What was user-0001's average heart rate last week?”
 and “What was user-0001's average resting heart rate last week?” select the
@@ -243,8 +262,8 @@ curl --fail --request POST http://127.0.0.1:8000/v1/query \
     "operation": "daily_user_average",
     "user_id": "user-0001",
     "metric": "heart_rate",
-    "start": "2026-01-05T00:00:00Z",
-    "end": "2026-01-12T00:00:00Z"
+    "start": "2026-10-05T00:00:00Z",
+    "end": "2026-10-26T00:00:00Z"
   }'
 ```
 
@@ -257,8 +276,8 @@ curl --fail --request POST http://127.0.0.1:8000/v1/query \
     "operation": "activity_state_comparison",
     "user_id": "user-0001",
     "metric": "heart_rate",
-    "start": "2026-01-05T00:00:00Z",
-    "end": "2026-01-12T00:00:00Z"
+    "start": "2026-10-05T00:00:00Z",
+    "end": "2026-10-26T00:00:00Z"
   }'
 ```
 
@@ -270,8 +289,8 @@ curl --fail --request POST http://127.0.0.1:8000/v1/query \
   --data '{
     "operation": "population_daily_average",
     "metric": "heart_rate",
-    "start": "2026-01-05T00:00:00Z",
-    "end": "2026-01-12T00:00:00Z"
+    "start": "2026-10-05T00:00:00Z",
+    "end": "2026-10-26T00:00:00Z"
   }'
 ```
 
@@ -315,17 +334,18 @@ curl --fail --request POST \
   http://127.0.0.1:8000/v1/query/natural-language \
   --header 'Content-Type: application/json' \
   --data '{
-    "question": "What was user-0001'\''s average resting heart rate each day from 2026-01-05T00:00:00Z to 2026-01-12T00:00:00Z?"
+    "question": "What was user-0001'\''s average resting heart rate each day from 2026-10-05T00:00:00Z to 2026-10-26T00:00:00Z?"
   }'
 ```
 
 Only `last week` is supported as relative shorthand; expressions such as
 `today`, `last month`, or `past 30 days` are rejected, including when mixed
-with explicit timestamps. The main demo uses explicit dates because the dataset is a January 2026
-snapshot. A `last week` request is relative to the real request time and
-normally returns `rows: []` once that week no longer overlaps the snapshot. The
-response exposes the resolved bounds, request reference time, and time zone; it
-never shifts `last week` back to the data window merely to produce rows.
+with explicit timestamps. The main demo uses explicit dates because it is a
+fixed October 2026 snapshot. A `last week` request is relative to the real
+request time and can return data only when that previous ISO week overlaps the
+snapshot; otherwise it returns `rows: []`. The response exposes the resolved
+bounds, request reference time, and time zone; it never shifts `last week`
+back to the data window merely to produce rows.
 
 Run the evaluation manifest:
 
@@ -333,8 +353,8 @@ Run the evaluation manifest:
 python3 scripts/evaluate_natural_language.py
 ```
 
-The manifest contains 26 cases. Its live run sends 24 natural-language requests: eight
-supported questions reach the real Ollama model, while 16 ambiguous, invalid,
+The manifest contains 32 cases. Its live run sends 30 natural-language requests: eight
+supported questions reach the real Ollama model, while 22 ambiguous, invalid,
 or unsupported questions are rejected by application validation before a
 model call. The remaining two cases—invalid model output and model
 unavailability—are deterministic fault-injection tests and are not live
@@ -367,11 +387,11 @@ python3 -m venv .venv
 docker rm --force health-data-test-postgres
 ```
 
-The recorded ARM64 run passed 65 tests in 17.299 seconds. They include JSONL
+The historical January ARM64 run passed 65 tests in 17.299 seconds. They include JSONL
 round-tripping and atomic publication, source reuse and incompatibility,
 duplicate/conflicting/out-of-order ingestion, post-commit retry, and
 hand-calculated answers for the original three operations including contributing
-timestamp bounds. The period-average extension has separate current evidence in
+timestamp bounds. The period-average extension has separate historical evidence in
 [docs/period-average-verification.md](docs/period-average-verification.md).
 The empty- and preserved-state Compose flow is reproducible
 with:
@@ -388,9 +408,9 @@ unchanged.
 The English [interview defense](docs/interview-defense.md) and
 [code explanation](docs/code-explanation.md) describe the same current behavior.
 
-## Measured verification
+## Historical measured verification
 
-The recorded ARM64 empty-persisted-state run completed in 67 seconds on ARM64 with
+The January 2026 ARM64 empty-persisted-state run completed in 67 seconds on ARM64 with
 cached image layers but empty PostgreSQL, source, and Ollama volumes. It
 downloaded the model, published and stored 271,620 observations, returned
 checked structured and natural-language responses, and rejected an ambiguous
@@ -402,14 +422,44 @@ evaluation passed 20/20.
 The exact responses, environment, corrected failures, test evidence, and
 measurement boundary are in
 [`docs/verification.md`](docs/verification.md). In particular, 67 seconds is
-not claimed as a no-cache fresh-VM time.
+not claimed as a no-cache fresh-VM time, and these values are not measurements
+of the current October 2026 default.
+
+## Historical October 2026 window verification
+
+Before the time-weighted query change, an isolated Apple ARM64 run generated and ingested
+814,492 observations over `[2026-10-05T00:00:00Z,
+2026-10-26T00:00:00Z)`, with no observations outside that interval. The 69-test
+suite passed against PostgreSQL 16.6. Structured full-range and daily queries
+passed; the real-Ollama manifest passed 24/24 live requests, including
+`last week` resolving at execution time to 12–19 October and matching the
+equivalent structured results. Full replay reused the JSONL and inserted zero
+rows, a preserved-volume restart reused the source, and the SIGKILL recovery
+finished with the same count and database digest as an uninterrupted load.
+Startup used cached image layers, so it is not a fresh-machine measurement.
+Commands, timings, request/model boundaries, and observed values are in
+[`docs/october-2026-verification.md`](docs/october-2026-verification.md).
+
+## Current time-weighted verification
+
+The isolated PostgreSQL 16.6 suite passed 79 tests, including hand-calculated
+interval, carry-in, state-boundary, gap, local/UTC midnight, DST and population
+user-second cases. A fresh isolated Compose project ingested the unchanged
+814,492-event October source and returned all five weighted operations.
+The real-Ollama evaluation passed 30/30 live requests: eight reached the model,
+22 were rejected before it, and every supported result matched its structured
+equivalent in full. The first supported inference took 15.852 seconds and the
+loaded-model repetition 5.755 seconds without changing the 30-second timeout.
+Observed values, quality summaries, commands and cache boundaries are in
+[`docs/time-weighted-verification.md`](docs/time-weighted-verification.md).
 
 ## Decisions and tradeoffs
 
 - A fixed window makes restart behavior reproducible; it does not look
   perpetually current.
 - Full JSONL replay instead of a broker or positional checkpoint keeps recovery
-  inspectable. The measured 18-second replay is acceptable for this dataset;
+  inspectable. The current isolated run measured a 35.34-second replay for
+  814,492 source lines and zero inserts, which is acceptable for this demo;
   materially larger sources require new measurements before keeping this
   choice.
 - One constrained heart-rate table provides stronger checks and clearer
@@ -418,6 +468,10 @@ not claimed as a no-cache fresh-VM time.
 - One indexed PostgreSQL table fits this sample and its query patterns.
   Partitioning would add maintenance without a demonstrated benefit here;
   larger histories need measurements of query pruning and retention needs.
+- A bounded constant hold makes irregular timing and missing intervals explicit
+  without inventing interpolation. The 360-second default limits stale carry
+  forward; changing it changes both means and reported availability and
+  therefore requires deliberate configuration and validation.
 - UUIDv5 and a natural unique key spend extra index space to defend against
   both replay and identity-algorithm defects.
 - Relative dates are intentionally narrow: `last week` means the previous ISO
@@ -430,8 +484,9 @@ not claimed as a no-cache fresh-VM time.
 
 Initial scaffolding, implementation drafts, test cases, Compose wiring, and
 documentation structure were delegated. Runtime and test claims in this README
-are limited to the historical record in `docs/verification.md` and the current
-extension record in `docs/period-average-verification.md`. Corrections
+are limited to the historical records in `docs/verification.md` and
+`docs/period-average-verification.md`, plus any separately identified current
+verification below. Corrections
 included a Python-version dependency mismatch, a packaged schema path, Compose
 image ownership, API dependency resolution, and two rejected local-model
 plans.
@@ -451,9 +506,9 @@ recovery mechanism for real-world measurements.
 I also challenged rejecting a reasonable whole-period user average. The
 implemented extension answers it with explicit all-reading and rest-only
 operations, preserves existing daily-rest semantics, and tests unequal daily
-counts so an average of daily means cannot silently replace the intended
-reading-level calculation. Implementation was delegated; defining the meaning
-and checking counterexamples remained review decisions.
+counts so an average of daily means cannot silently replace the requested
+whole-period operation. Implementation was delegated; defining the meaning and
+checking counterexamples remained review decisions.
 
 Review checkpoints covered scope, synthetic-pattern plausibility, query and
 error boundaries, recovery evidence, and final claims. This repository records
@@ -463,8 +518,8 @@ domain-owner review and environment-specific evidence.
 
 ## Limitations
 
-- The historical author record covers ARM64 and empty named volumes. The
-  period extension was exercised on AMD64 with a documented environment-only
+- The historical ARM64 record covers empty named volumes. The historical
+  period extension record used AMD64 with a documented environment-only
   Compose adaptation; neither record establishes no-cache fresh-VM deployment.
 - There is no authentication, authorization, TLS termination, rate limiting,
   per-user tenancy boundary, or audit log.
@@ -472,15 +527,18 @@ domain-owner review and environment-specific evidence.
   backup/restore automation, or production monitoring.
 - The synthetic generator models recognizable schedules and gaps, not
   physiology.
-- The data is a fixed historical snapshot. Normal restarts replay the same
+- The data is a fixed synthetic snapshot. Normal restarts replay the same
   source and do not append current observations.
 - The source named volume survives container restarts but is neither backed up
   nor replicated. Deleting it removes the persisted event source.
-- Means weight recorded observations equally, so high-cadence states and users
-  with more readings contribute more; no time weighting or equal-user
-  weighting is claimed.
-- First/last timestamps bound contributing observations but do not prove
-  gap-free coverage. Missing days are omitted, never represented as zero BPM.
+- Time weighting assumes that a reading remains valid for at most 360 seconds
+  by default. This is configurable and explicit, but it is not clinical
+  evidence that the value stayed constant.
+- Population means pool observed user-seconds; users with more valid observed
+  time contribute more. Equal-user weighting is not claimed.
+- Gap metadata measures availability under the maximum-hold rule, not device
+  uptime, physiological coverage, or proof that no unobserved change occurred.
+  Missing groups are omitted, never represented as zero BPM.
 - The API supports five intentionally narrow operations and one metric.
 - Image tags and Python direct dependencies are pinned, but image digests and
   the complete transitive Python dependency graph are not locked.

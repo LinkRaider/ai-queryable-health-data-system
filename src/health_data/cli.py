@@ -71,7 +71,11 @@ def demo_queries() -> None:
     )
     with connect(settings.database_url) as connection:
         for request in requests:
-            result = execute_query(connection, request)
+            result = execute_query(
+                connection,
+                request,
+                max_hold_seconds=settings.max_hold_seconds,
+            )
             print(json.dumps(result.as_dict(), sort_keys=True))
 
 

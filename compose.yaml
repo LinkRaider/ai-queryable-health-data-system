@@ -66,6 +66,7 @@ services:
       HEALTH_DATA_OLLAMA_URL: http://ollama:11434
       HEALTH_DATA_OLLAMA_MODEL: qwen2.5:1.5b
       HEALTH_DATA_RELATIVE_DATE_TIMEZONE: UTC
+      HEALTH_DATA_MAX_HOLD_SECONDS: ${HEALTH_DATA_MAX_HOLD_SECONDS:-360}
     depends_on:
       bootstrap:
         condition: service_completed_successfully

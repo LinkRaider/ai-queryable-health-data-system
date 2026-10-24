@@ -5,20 +5,20 @@ These are synthetic engineering patterns, not clinically validated measurements.
 
 ## Reproducibility snapshot
 
-- Events: 271,620
+- Events: 814,492
 - Users: 50
-- Window: `2026-01-05T00:00:00Z` to `2026-01-12T00:00:00Z`
+- Window: `2026-10-05T00:00:00Z` to `2026-10-26T00:00:00Z`
 - Seed: `20261019`
-- Event/value/state SHA-256: `0a57621a3b801c408f75cf2ec18bf23c241f8b93e7c6214c15233545fa2b9c70`
+- Event/value/state SHA-256: `6f922feaccacb62d0290f6956a5892ea11642f4970c57c39f23bbcc81bebf8b7`
 
 ## Population pattern summary
 
-| State | Events | Mean recorded BPM |
+| State | Events | Unweighted generated BPM mean (descriptive only) |
 | --- | ---: | ---: |
-| `sleep` | 35,696 | 59.2 |
-| `rest` | 23,647 | 66.7 |
-| `ordinary_activity` | 190,417 | 95.9 |
-| `workout` | 21,860 | 143.3 |
+| `sleep` | 106,887 | 59.2 |
+| `rest` | 71,249 | 66.7 |
+| `ordinary_activity` | 571,519 | 96.0 |
+| `workout` | 64,837 | 144.5 |
 
 ## Distinguishable profiles
 
@@ -28,34 +28,32 @@ These are synthetic engineering patterns, not clinically validated measurements.
 | `user-0026` | `America/Los_Angeles` | 58.0 | 07:20 | 22:19 | +32.4 | +93.7 |
 | `user-0049` | `America/New_York` | 77.8 | 06:07 | 21:35 | +37.8 | +86.8 |
 
-## Representative local timeline: `user-0001` on `2026-01-06`
+## Representative local timeline: `user-0001` on `2026-10-06`
 
-Time zone: `America/Los_Angeles`. Planned workout: `20:52`–`21:29`. Device off: `14:12`–`15:26`.
+Time zone: `America/Los_Angeles`. Planned workout: `19:03`–`20:13`. Device off: `21:58`–`23:21`.
 
-| Observed segment | State | Readings | Mean recorded BPM |
+| Observed segment | State | Readings | Unweighted generated BPM mean (descriptive only) |
 | --- | --- | ---: | ---: |
-| `00:02:45`–`07:44:03` | `sleep` | 92 | 55.8 |
-| `07:49:05`–`08:28:28` | `rest` | 14 | 62.2 |
-| `08:31:28`–`11:58:52` | `ordinary_activity` | 165 | 94.5 |
-| `12:00:05`–`12:58:15` | `rest` | 20 | 64.0 |
-| `13:01:25`–`14:11:26` | `ordinary_activity` | 57 | 94.5 |
-| `15:26:08`–`18:29:17` | `ordinary_activity` | 148 | 96.7 |
-| `18:30:39`–`19:28:00` | `rest` | 20 | 64.0 |
-| `19:31:24`–`20:51:35` | `ordinary_activity` | 66 | 94.1 |
-| `20:52:50`–`21:28:50` | `workout` | 111 | 153.6 |
-| `21:29:06`–`22:50:59` | `ordinary_activity` | 67 | 94.0 |
-| `22:52:23`–`23:36:43` | `rest` | 16 | 61.5 |
-| `23:39:29`–`23:58:09` | `sleep` | 5 | 54.7 |
+| `00:03:00`–`07:45:57` | `sleep` | 93 | 55.9 |
+| `07:50:49`–`08:29:00` | `rest` | 14 | 61.2 |
+| `08:32:24`–`11:59:11` | `ordinary_activity` | 164 | 94.6 |
+| `12:00:34`–`12:59:42` | `rest` | 21 | 64.9 |
+| `13:02:20`–`18:29:08` | `ordinary_activity` | 263 | 95.6 |
+| `18:30:26`–`19:02:34` | `rest` | 12 | 64.8 |
+| `19:05:12`–`20:12:58` | `workout` | 203 | 154.7 |
+| `20:13:16`–`21:57:20` | `ordinary_activity` | 84 | 94.2 |
+| `23:21:14`–`23:23:59` | `rest` | 2 | 63.2 |
+| `23:27:00`–`23:58:00` | `sleep` | 7 | 56.1 |
 
 ## Explicit no-reading gap
 
-- Device-off interval: `2026-01-06T14:12:00-08:00` to `2026-01-06T15:26:00-08:00`.
-- Nearest reading before: `2026-01-06T14:11:26-08:00`.
-- Nearest reading after: `2026-01-06T15:26:08-08:00`.
-- Observed reading-to-reading gap: `74.7` minutes.
+- Device-off interval: `2026-10-06T21:58:00-07:00` to `2026-10-06T23:21:00-07:00`.
+- Nearest reading before: `2026-10-06T21:57:20-07:00`.
+- Nearest reading after: `2026-10-06T23:21:14-07:00`.
+- Observed reading-to-reading gap: `83.9` minutes.
 - Events inside the device-off interval: `0`.
 
 ## Coverage
 
-- Users with at least one explicit device-off interval: 46/50.
+- Users with at least one explicit device-off interval: 50/50.
 - Activity states present: ordinary_activity, rest, sleep, workout.

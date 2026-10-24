@@ -85,38 +85,57 @@ class DailyAverageRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     day: str
-    mean_recorded_bpm: float
-    observation_count: int
-    first_observed_at: datetime
-    last_observed_at: datetime
+    time_weighted_mean_bpm: float
+    contributing_duration_seconds: float
 
 
 class PeriodAverageRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    mean_recorded_bpm: float
-    observation_count: int
-    first_observed_at: datetime
-    last_observed_at: datetime
+    time_weighted_mean_bpm: float
+    contributing_duration_seconds: float
 
 
 class ActivityComparisonRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     activity_state: Literal["sleep", "rest", "ordinary_activity", "workout"]
-    mean_recorded_bpm: float
-    observation_count: int
+    time_weighted_mean_bpm: float
+    contributing_duration_seconds: float
 
 
 class PopulationAverageRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     day: str
-    mean_recorded_bpm: float
-    observation_count: int
-    user_count: int
-    first_observed_at: datetime
-    last_observed_at: datetime
+    time_weighted_mean_bpm: float
+    contributing_user_seconds: float
+    contributing_user_count: int
+
+
+class UserQualitySummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: Literal["user"]
+    requested_duration_seconds: float
+    observed_duration_seconds: float
+    unobserved_duration_seconds: float
+    gap_count: int
+    largest_gap_seconds: float
+
+
+class PopulationQualitySummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: Literal["population"]
+    requested_duration_seconds: float
+    requested_user_seconds: float
+    observed_user_seconds: float
+    unobserved_user_seconds: float
+    expected_user_count: int
+    observed_user_count: int
+    gap_count: int
+    largest_individual_gap_seconds: float
 
 
 class AnalyticalQueryResponse(BaseModel):
@@ -126,7 +145,9 @@ class AnalyticalQueryResponse(BaseModel):
     metric: Literal["heart_rate"]
     start: datetime
     end: datetime
-    aggregation_basis: Literal["recorded_observations"]
+    aggregation_basis: Literal["time_weighted_observation_hold"]
+    max_hold_seconds: int
+    quality: UserQualitySummary | PopulationQualitySummary
     rows: list[DailyAverageRow | ActivityComparisonRow | PopulationAverageRow | PeriodAverageRow]
 
 
@@ -189,6 +210,7 @@ def create_app(
     planner: QueryPlanner | None = None,
     query_reference_time: datetime | None = None,
     relative_date_timezone: str | None = None,
+    max_hold_seconds: int | None = None,
 ) -> FastAPI:
     settings = load_settings()
     app = FastAPI(
@@ -196,7 +218,8 @@ def create_app(
         version="1.0.0",
         description=(
             "Bounded analytics over a fixed synthetic heart-rate snapshot. "
-            "Reported means weight each recorded observation equally. "
+            "Reported means weight held observations by valid elapsed time and "
+            "expose unavailable intervals. "
             "No endpoint accepts arbitrary SQL."
         ),
     )
@@ -209,6 +232,11 @@ def create_app(
     app.state.query_reference_time = query_reference_time
     app.state.relative_date_timezone = (
         relative_date_timezone or settings.relative_date_timezone
+    )
+    app.state.max_hold_seconds = (
+        max_hold_seconds
+        if max_hold_seconds is not None
+        else settings.max_hold_seconds
     )
 
     @app.exception_handler(RequestValidationError)
@@ -303,9 +331,14 @@ def create_app(
     )
     def structured_query(
         request: StructuredQueryRequest,
+        http_request: Request,
         connection: DatabaseConnection,
     ) -> dict[str, Any]:
-        return execute_query(connection, request.to_domain()).as_dict()
+        return execute_query(
+            connection,
+            request.to_domain(),
+            max_hold_seconds=http_request.app.state.max_hold_seconds,
+        ).as_dict()
 
     @app.post(
         "/v1/query/natural-language",
@@ -329,7 +362,11 @@ def create_app(
             timezone_name=http_request.app.state.relative_date_timezone,
         )
         interpreted = interpretation.query
-        result = execute_query(connection, interpreted)
+        result = execute_query(
+            connection,
+            interpreted,
+            max_hold_seconds=http_request.app.state.max_hold_seconds,
+        )
         return {
             "question": request.question,
             "interpreted_query": {

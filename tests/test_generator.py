@@ -5,7 +5,7 @@ import sys
 import statistics
 import unittest
 from collections import Counter, defaultdict
-from datetime import UTC
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -46,9 +46,11 @@ class SyntheticHeartRateGeneratorTests(unittest.TestCase):
             cls.events_by_user[event.user_id].append(event)
 
     def test_default_population_and_volume_are_defensible(self) -> None:
+        self.assertEqual(datetime(2026, 10, 5, tzinfo=UTC), self.config.window_start)
+        self.assertEqual(datetime(2026, 10, 26, tzinfo=UTC), self.config.window_end)
         self.assertEqual(50, len(self.profiles))
-        self.assertGreater(len(self.events), 150_000)
-        self.assertLess(len(self.events), 450_000)
+        self.assertGreater(len(self.events), 650_000)
+        self.assertLess(len(self.events), 1_000_000)
         self.assertEqual(50, len(self.events_by_user))
 
     def test_repeated_generation_has_identical_payloads_and_ids(self) -> None:

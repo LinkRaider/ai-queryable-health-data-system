@@ -36,7 +36,7 @@ SUPPORTED = [
     for case in CASES
     if case["category"] in {"supported", "supported_relative"}
 ]
-TEST_REFERENCE_TIME = datetime(2026, 1, 12, tzinfo=UTC)
+TEST_REFERENCE_TIME = datetime(2026, 10, 12, tzinfo=UTC)
 
 
 class EvaluationPlanner:
@@ -101,7 +101,7 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
             """,
             (Jsonb({}),),
         )
-        start = datetime(2026, 1, 5, tzinfo=UTC)
+        start = datetime(2026, 10, 5, tzinfo=UTC)
         observations = [
             (uuid.UUID(int=201), start + timedelta(hours=1), 60.0, "rest"),
             (uuid.UUID(int=202), start + timedelta(hours=2), 80.0, "rest"),
@@ -208,12 +208,12 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
                 self.assertTrue(payload["result"]["rows"])
                 temporal = payload["temporal_interpretation"]
                 if case["category"] == "supported_relative":
-                    self.assertEqual("2026-01-05T00:00:00Z", temporal["start"])
-                    self.assertEqual("2026-01-12T00:00:00Z", temporal["end"])
+                    self.assertEqual("2026-10-05T00:00:00Z", temporal["start"])
+                    self.assertEqual("2026-10-12T00:00:00Z", temporal["end"])
                     self.assertEqual("previous_iso_week", temporal["kind"])
                     self.assertEqual("UTC", temporal["timezone"])
                     self.assertEqual(
-                        "2026-01-12T00:00:00Z",
+                        "2026-10-12T00:00:00Z",
                         temporal["reference_time"],
                     )
                 else:
@@ -508,7 +508,7 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
         case = SUPPORTED[0]
         for invalid_plan in (
             {**case["plan"], "user_id": "user-0002"},
-            {**case["plan"], "start": "2026-01-06T00:00:00Z"},
+            {**case["plan"], "start": "2026-10-06T00:00:00Z"},
         ):
             with self.subTest(plan=invalid_plan):
                 with self.assertRaises(InvalidModelOutputError):

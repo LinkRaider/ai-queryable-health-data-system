@@ -46,9 +46,9 @@ class StructuredQueryApiTests(unittest.TestCase):
             self.assertEqual(200, response.status_code, response.text)
             row = response.json()["rows"][0]
             self.assertNotIn("day", row)
-            self.assertGreater(row["observation_count"], 0)
-            self.assertIn("first_observed_at", row)
-            self.assertIn("last_observed_at", row)
+            self.assertGreater(row["contributing_duration_seconds"], 0)
+            self.assertIn("time_weighted_mean_bpm", row)
+            self.assertNotIn("mean_recorded_bpm", row)
             for extra in ({"activity_state": "workout"}, {"user_id": None}):
                 self.assertEqual(422, client.post("/v1/query", json={**request, **extra}).status_code)
 
@@ -162,24 +162,32 @@ class StructuredQueryApiTests(unittest.TestCase):
             [
                 {
                     "day": "2026-01-05",
-                    "mean_recorded_bpm": 70.0,
-                    "observation_count": 2,
-                    "first_observed_at": "2026-01-05T01:00:00Z",
-                    "last_observed_at": "2026-01-05T02:00:00Z",
+                    "time_weighted_mean_bpm": 70.0,
+                    "contributing_duration_seconds": 720.0,
                 },
                 {
                     "day": "2026-01-06",
-                    "mean_recorded_bpm": 70.0,
-                    "observation_count": 1,
-                    "first_observed_at": "2026-01-06T01:00:00Z",
-                    "last_observed_at": "2026-01-06T01:00:00Z",
+                    "time_weighted_mean_bpm": 70.0,
+                    "contributing_duration_seconds": 360.0,
                 },
             ],
             response.json()["rows"],
         )
         self.assertEqual(
-            "recorded_observations",
+            "time_weighted_observation_hold",
             response.json()["aggregation_basis"],
+        )
+        self.assertEqual(360, response.json()["max_hold_seconds"])
+        self.assertEqual(
+            {
+                "scope": "user",
+                "requested_duration_seconds": 172800.0,
+                "observed_duration_seconds": 1080.0,
+                "unobserved_duration_seconds": 171720.0,
+                "gap_count": 4,
+                "largest_gap_seconds": 82440.0,
+            },
+            response.json()["quality"],
         )
 
     def test_empty_query_returns_200_with_empty_rows(self) -> None:
@@ -192,6 +200,7 @@ class StructuredQueryApiTests(unittest.TestCase):
         )
         self.assertEqual(200, response.status_code)
         self.assertEqual([], response.json()["rows"])
+        self.assertEqual(86400.0, response.json()["quality"]["largest_gap_seconds"])
 
     def test_invalid_requests_return_structured_422_errors(self) -> None:
         cases = (
@@ -249,6 +258,19 @@ class StructuredQueryApiTests(unittest.TestCase):
         self.assertEqual(
             "#/components/schemas/NaturalLanguageQueryResponse",
             natural_response["$ref"],
+        )
+        response_properties = schema["components"]["schemas"][
+            "AnalyticalQueryResponse"
+        ]["properties"]
+        self.assertIn("quality", response_properties)
+        self.assertIn("max_hold_seconds", response_properties)
+        self.assertEqual(
+            "time_weighted_observation_hold",
+            response_properties["aggregation_basis"]["const"],
+        )
+        self.assertNotIn(
+            "mean_recorded_bpm",
+            schema["components"]["schemas"]["PeriodAverageRow"]["properties"],
         )
 
     def test_database_unavailability_returns_503_without_connection_details(self) -> None:

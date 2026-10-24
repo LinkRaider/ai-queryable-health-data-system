@@ -96,7 +96,7 @@ def render() -> str:
         "",
         "## Population pattern summary",
         "",
-        "| State | Events | Mean recorded BPM |",
+        "| State | Events | Unweighted generated BPM mean (descriptive only) |",
         "| --- | ---: | ---: |",
     ]
     for state in ActivityState:
@@ -161,7 +161,8 @@ def render() -> str:
             f"`{plan.workout.start:%H:%M}`–`{plan.workout.end:%H:%M}`. "
             f"Device off: `{plan.device_off.start:%H:%M}`–`{plan.device_off.end:%H:%M}`.",
             "",
-            "| Observed segment | State | Readings | Mean recorded BPM |",
+            "| Observed segment | State | Readings | "
+            "Unweighted generated BPM mean (descriptive only) |",
             "| --- | --- | ---: | ---: |",
         ]
     )

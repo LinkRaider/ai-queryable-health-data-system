@@ -1,8 +1,11 @@
 # Verification record
 
-This is the historical ARM64 record for the original three operations. Current
+This is the historical ARM64 record for the original three operations. Later
 period-average evidence is in [period-average-verification.md](period-average-verification.md);
 its new test counts and model results do not replace the measurements below.
+Both records predate the time-weighted query contract; fields such as
+`mean_recorded_bpm` and `recorded_observations` below describe the code tested
+at that time and are not the current API.
 
 Verification environment:
 

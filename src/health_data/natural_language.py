@@ -48,7 +48,25 @@ UNSUPPORTED_RELATIVE_DATE_PATTERN = re.compile(
 )
 UNSUPPORTED_AGGREGATION_PATTERN = re.compile(
     r"\b(?:max(?:imum)?|min(?:imum)?|median|percentile|"
-    r"p\d{2}|sum|highest|lowest|standard deviation|how many)\b",
+    r"p\d{2}|sum|highest|lowest|standard deviation|how many|"
+    r"(?:arithmetic|unweighted) (?:average|mean)|"
+    r"equal[- ](?:user|person) (?:average|mean)|"
+    r"(?:geometric|harmonic|trimmed|winsori[sz]ed|moving|rolling|"
+    r"exponential) (?:average|mean)|"
+    r"root[- ]mean[- ]square|quadratic (?:average|mean)|rms|"
+    r"interpolat(?:ed|ion))\b",
+    re.IGNORECASE,
+)
+UNSUPPORTED_HOLD_OVERRIDE_PATTERN = re.compile(
+    r"(?:"
+    r"\b(?:(?:max(?:imum)? )?hold|carry(?: forward)?|valid(?:ity)?)\b"
+    r".{0,30}\b\d+(?:\.\d+)?[\s-]*(?:seconds?|secs?|s|"
+    r"minutes?|mins?|m|hours?|hrs?|h)\b"
+    r"|"
+    r"\b\d+(?:\.\d+)?[\s-]*(?:seconds?|secs?|s|"
+    r"minutes?|mins?|m|hours?|hrs?|h)\b"
+    r".{0,30}\b(?:(?:max(?:imum)? )?hold|carry(?: forward)?|valid(?:ity)?)\b"
+    r")",
     re.IGNORECASE,
 )
 MEDICAL_ADVICE_PATTERN = re.compile(
@@ -169,26 +187,31 @@ When the application appends a "Resolved time range" line, copy those
 timestamps exactly. The application, not the model, resolves relative dates.
 
 Supported operation mapping:
-- user_period_average: one mean of ALL recorded observations of one user over
-  the entire interval, without daily or activity-state grouping.
-- user_period_resting_average: one mean of only REST observations of one user
-  over the entire interval, without daily grouping. Use this for resting requests.
-- daily_user_average: mean of one user's recorded RESTING heart-rate observations,
-  grouped by local day.
-- activity_state_comparison: mean of one user's recorded heart-rate observations,
-  compared across activity states.
-- population_daily_average: mean of recorded heart-rate observations across all
-  users, grouped by UTC day. This is not a per-user or time-weighted mean.
+- user_period_average: one time-weighted mean of ALL valid held readings of one
+  user over the entire interval, without daily or activity-state grouping.
+- user_period_resting_average: one time-weighted mean of only REST intervals of
+  one user over the entire interval, without daily grouping. Use this for
+  resting requests.
+- daily_user_average: time-weighted mean of one user's valid held RESTING
+  readings, grouped by local day.
+- activity_state_comparison: time-weighted mean of one user's valid held
+  readings, compared across the originating activity states.
+- population_daily_average: pooled time-weighted mean across valid user-seconds,
+  grouped by UTC day. This does not give each user equal weight.
+
+All supported averages use the application's fixed maximum-hold interval rule.
+Do not select or invent an arithmetic, interpolated, equal-user, maximum,
+minimum, median, count-only, or other aggregation.
 
 The only metric is heart_rate. Do not infer missing users or timestamps.
 
 Examples:
-Question: What was user-0001's average heart rate from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?
-Output: {"operation":"user_period_average","user_id":"user-0001","metric":"heart_rate","start":"2026-01-05T00:00:00Z","end":"2026-01-07T00:00:00Z"}
-Question: What was user-0001's average resting heart rate from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?
-Output: {"operation":"user_period_resting_average","user_id":"user-0001","metric":"heart_rate","start":"2026-01-05T00:00:00Z","end":"2026-01-07T00:00:00Z"}
-Question: What was user-0001's average resting heart rate each day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?
-Output: {"operation":"daily_user_average","user_id":"user-0001","metric":"heart_rate","start":"2026-01-05T00:00:00Z","end":"2026-01-07T00:00:00Z"}
+Question: What was user-0001's average heart rate from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?
+Output: {"operation":"user_period_average","user_id":"user-0001","metric":"heart_rate","start":"2026-10-05T00:00:00Z","end":"2026-10-07T00:00:00Z"}
+Question: What was user-0001's average resting heart rate from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?
+Output: {"operation":"user_period_resting_average","user_id":"user-0001","metric":"heart_rate","start":"2026-10-05T00:00:00Z","end":"2026-10-07T00:00:00Z"}
+Question: What was user-0001's average resting heart rate each day from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?
+Output: {"operation":"daily_user_average","user_id":"user-0001","metric":"heart_rate","start":"2026-10-05T00:00:00Z","end":"2026-10-07T00:00:00Z"}
 Daily wording (each day, per day, daily) always requires daily_user_average for
 resting user questions, NEVER user_period_resting_average. Without daily or
 activity-state grouping, choose the corresponding user_period operation.
@@ -283,6 +306,10 @@ def _validate_question_scope(question: str) -> None:
     if UNSUPPORTED_AGGREGATION_PATTERN.search(question):
         raise UnsupportedOperationError(
             "question requests an unsupported analytical operation"
+        )
+    if UNSUPPORTED_HOLD_OVERRIDE_PATTERN.search(question):
+        raise UnsupportedOperationError(
+            "question cannot override the configured maximum-hold rule"
         )
     if re.search(r"\b(?:my|mine)\b", normalised) and not USER_PATTERN.search(question):
         raise AmbiguousQuestionError(

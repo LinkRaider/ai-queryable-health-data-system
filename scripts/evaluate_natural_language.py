@@ -13,8 +13,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES_PATH = ROOT / "tests" / "evaluation" / "natural_language_cases.json"
-SNAPSHOT_START = datetime(2026, 1, 5, tzinfo=UTC)
-SNAPSHOT_END = datetime(2026, 1, 12, tzinfo=UTC)
+SNAPSHOT_START = datetime(2026, 10, 5, tzinfo=UTC)
+SNAPSHOT_END = datetime(2026, 10, 26, tzinfo=UTC)
 
 
 def relative_result_matches_snapshot(
@@ -26,6 +26,27 @@ def relative_result_matches_snapshot(
         return False
     overlaps_snapshot = start < SNAPSHOT_END and end > SNAPSHOT_START
     return bool(rows) if overlaps_snapshot else rows == []
+
+
+def result_has_weighted_contract(result: dict, operation: str) -> bool:
+    rows = result.get("rows")
+    duration_field = (
+        "contributing_user_seconds"
+        if operation == "population_daily_average"
+        else "contributing_duration_seconds"
+    )
+    return (
+        result.get("aggregation_basis") == "time_weighted_observation_hold"
+        and result.get("max_hold_seconds") == 360
+        and isinstance(result.get("quality"), dict)
+        and isinstance(rows, list)
+        and all(
+            "time_weighted_mean_bpm" in row
+            and duration_field in row
+            and "mean_recorded_bpm" not in row
+            for row in rows
+        )
+    )
 
 
 def post_question(base_url: str, question: str) -> tuple[int, dict]:
@@ -70,29 +91,17 @@ def main() -> None:
             temporal = payload.get("temporal_interpretation", {})
             result = payload.get("result", {})
             if case["category"] == "supported":
-                rows = result.get("rows")
                 operation = case["plan"]["operation"]
-                daily_bounds_present = (
-                    operation == "activity_state_comparison"
-                    or (
-                        isinstance(rows, list)
-                        and all(
-                            "first_observed_at" in row
-                            and "last_observed_at" in row
-                            for row in rows
-                        )
-                    )
-                )
                 passed = (
                     status == 200
-                    and result.get("aggregation_basis") == "recorded_observations"
+                    and result_has_weighted_contract(result, operation)
                     and interpreted.get("operation") == operation
                     and interpreted.get("user_id") == case["plan"]["user_id"]
                     and interpreted.get("start") == case["plan"]["start"]
                     and interpreted.get("end") == case["plan"]["end"]
-                    and daily_bounds_present
                 )
             else:
+                operation = case["expected_operation"]
                 try:
                     reference = datetime.fromisoformat(
                         temporal.get("reference_time", "").replace("Z", "+00:00")
@@ -105,8 +114,8 @@ def main() -> None:
                     )
                     passed = (
                         status == 200
-                        and result.get("aggregation_basis") == "recorded_observations"
-                        and interpreted.get("operation") == case["expected_operation"]
+                        and result_has_weighted_contract(result, operation)
+                        and interpreted.get("operation") == operation
                         and interpreted.get("user_id") == case["expected_user_id"]
                         and interpreted.get("start") == temporal.get("start")
                         and interpreted.get("end") == temporal.get("end")

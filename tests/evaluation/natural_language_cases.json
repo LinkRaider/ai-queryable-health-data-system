@@ -2,14 +2,14 @@
   {
     "name": "whole-period all readings",
     "category": "supported",
-    "question": "What was user-0001's average heart rate from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?",
-    "plan": {"operation": "user_period_average", "user_id": "user-0001", "metric": "heart_rate", "start": "2026-01-05T00:00:00Z", "end": "2026-01-07T00:00:00Z"}
+    "question": "What was user-0001's average heart rate from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?",
+    "plan": {"operation": "user_period_average", "user_id": "user-0001", "metric": "heart_rate", "start": "2026-10-05T00:00:00Z", "end": "2026-10-07T00:00:00Z"}
   },
   {
     "name": "whole-period resting readings",
     "category": "supported",
-    "question": "What was user-0001's average resting heart rate from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?",
-    "plan": {"operation": "user_period_resting_average", "user_id": "user-0001", "metric": "heart_rate", "start": "2026-01-05T00:00:00Z", "end": "2026-01-07T00:00:00Z"}
+    "question": "What was user-0001's average resting heart rate from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?",
+    "plan": {"operation": "user_period_resting_average", "user_id": "user-0001", "metric": "heart_rate", "start": "2026-10-05T00:00:00Z", "end": "2026-10-07T00:00:00Z"}
   },
   {
     "name": "whole-period all readings real last week",
@@ -28,13 +28,13 @@
   {
     "name": "daily resting average",
     "category": "supported",
-    "question": "What was user-0001's average resting heart rate each day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?",
+    "question": "What was user-0001's average resting heart rate each day from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?",
     "plan": {
       "operation": "daily_user_average",
       "user_id": "user-0001",
       "metric": "heart_rate",
-      "start": "2026-01-05T00:00:00Z",
-      "end": "2026-01-07T00:00:00Z"
+      "start": "2026-10-05T00:00:00Z",
+      "end": "2026-10-07T00:00:00Z"
     }
   },
   {
@@ -47,91 +47,121 @@
   {
     "name": "activity comparison",
     "category": "supported",
-    "question": "Compare user-0001's average heart rate across activity states from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z.",
+    "question": "Compare user-0001's average heart rate across activity states from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z.",
     "plan": {
       "operation": "activity_state_comparison",
       "user_id": "user-0001",
       "metric": "heart_rate",
-      "start": "2026-01-05T00:00:00Z",
-      "end": "2026-01-07T00:00:00Z"
+      "start": "2026-10-05T00:00:00Z",
+      "end": "2026-10-07T00:00:00Z"
     }
   },
   {
     "name": "population daily average",
     "category": "supported",
-    "question": "What was the population average heart rate across all users each UTC day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?",
+    "question": "What was the population average heart rate across all users each UTC day from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?",
     "plan": {
       "operation": "population_daily_average",
       "user_id": null,
       "metric": "heart_rate",
-      "start": "2026-01-05T00:00:00Z",
-      "end": "2026-01-07T00:00:00Z"
+      "start": "2026-10-05T00:00:00Z",
+      "end": "2026-10-07T00:00:00Z"
     }
   },
   {
     "name": "ambiguous missing subject and range",
     "category": "ambiguous",
-    "question": "What was the average heart rate from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+    "question": "What was the average heart rate from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
   },
   {
     "name": "unsupported metric",
     "category": "unsupported_metric",
-    "question": "What was user-0001's average step count from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+    "question": "What was user-0001's average step count from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
   },
   {
     "name": "unsupported maximum",
     "category": "unsupported_operation",
-    "question": "What was user-0001's maximum resting heart rate each day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+    "question": "What was user-0001's maximum resting heart rate each day from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
   },
   {
     "name": "unsupported minimum",
     "category": "unsupported_operation",
-    "question": "What was user-0001's minimum heart rate across activity states from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+    "question": "What was user-0001's minimum heart rate across activity states from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
   },
   {
     "name": "unsupported median",
     "category": "unsupported_operation",
-    "question": "What was the population median heart rate from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+    "question": "What was the population median heart rate from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
   },
   {
     "name": "unsupported count-only question",
     "category": "unsupported_operation",
-    "question": "How many heart rate observations did user-0001 have from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+    "question": "How many heart rate observations did user-0001 have from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
+  },
+  {
+    "name": "unsupported arithmetic mean request",
+    "category": "unsupported_operation",
+    "question": "What was user-0001's arithmetic average heart rate from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
+  },
+  {
+    "name": "unsupported geometric mean request",
+    "category": "unsupported_operation",
+    "question": "What was user-0001's geometric mean heart rate from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
+  },
+  {
+    "name": "unsupported root mean square request",
+    "category": "unsupported_operation",
+    "question": "What was user-0001's root mean square heart rate from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
+  },
+  {
+    "name": "unsupported hold override",
+    "category": "unsupported_operation",
+    "question": "What was user-0001's average heart rate using a hold of 10 minutes from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
+  },
+  {
+    "name": "unsupported duration-first hold override",
+    "category": "unsupported_operation",
+    "question": "What was user-0001's average heart rate using a 10-minute hold from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
+  },
+  {
+    "name": "unsupported abbreviated hold override",
+    "category": "unsupported_operation",
+    "question": "What was user-0001's average heart rate using a 10 min hold from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
   },
   {
     "name": "population average missing daily grouping",
     "category": "unsupported_operation",
-    "question": "What was the population average heart rate across all users from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+    "question": "What was the population average heart rate across all users from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
   },
   {
     "name": "activity comparison with unsupported daily grouping",
     "category": "unsupported_operation",
-    "question": "Compare user-0001's average heart rate across activity states each day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z."
+    "question": "Compare user-0001's average heart rate across activity states each day from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z."
   },
   {
     "name": "unsupported hourly grouping",
     "category": "unsupported_operation",
-    "question": "What was user-0001's average resting heart rate hourly from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+    "question": "What was user-0001's average resting heart rate hourly from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
   },
   {
     "name": "population resting filter is unsupported",
     "category": "unsupported_operation",
-    "question": "What was the population average resting heart rate each UTC day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+    "question": "What was the population average resting heart rate each UTC day from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
   },
   {
     "name": "single-user UTC-day grouping is unsupported",
     "category": "unsupported_operation",
-    "question": "What was user-0001's average resting heart rate each UTC day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+    "question": "What was user-0001's average resting heart rate each UTC day from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
   },
   {
     "name": "population local-day grouping is unsupported",
     "category": "unsupported_operation",
-    "question": "What was the population average heart rate each local day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+    "question": "What was the population average heart rate each local day from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
   },
   {
     "name": "activity-state subset is unsupported",
     "category": "unsupported_operation",
-    "question": "Compare user-0001's average heart rate across rest and workout activity states from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z."
+    "question": "Compare user-0001's average heart rate across rest and workout activity states from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z."
   },
   {
     "name": "invalid calendar timestamp",
@@ -141,29 +171,29 @@
   {
     "name": "malformed user identity",
     "category": "ambiguous",
-    "question": "What was user-0001-extra's average resting heart rate each day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+    "question": "What was user-0001-extra's average resting heart rate each day from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
   },
   {
     "name": "unsupported medical advice",
     "category": "unsupported_question",
-    "question": "Is user-0001's heart rate healthy from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+    "question": "Is user-0001's heart rate healthy from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
   },
   {
     "name": "invalid model output",
     "category": "invalid_model_output",
-    "question": "What was user-0001's average resting heart rate each day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?",
+    "question": "What was user-0001's average resting heart rate each day from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?",
     "plan": {
       "operation": "daily_user_average",
       "user_id": "user-0001",
       "metric": "heart_rate",
-      "start": "2026-01-05T00:00:00Z",
-      "end": "2026-01-07T00:00:00Z",
+      "start": "2026-10-05T00:00:00Z",
+      "end": "2026-10-07T00:00:00Z",
       "sql": "SELECT * FROM heart_rate_observations"
     }
   },
   {
     "name": "model unavailable",
     "category": "model_unavailable",
-    "question": "What was user-0001's average resting heart rate each day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+    "question": "What was user-0001's average resting heart rate each day from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
   }
 ]

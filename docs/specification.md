@@ -2,7 +2,7 @@
 
 Status: implementation contract  
 Event schema: `health.heart_rate.observation.v1`  
-Demo configuration: 50 users, seven complete days, fixed seed `20261019`
+Demo configuration: 50 users, 21 complete days, fixed seed `20261019`
 
 This document describes the implementation-selected contract and acceptance
 criteria. These choices are not additional requirements imposed by the brief. Heart-rate values and behavioural schedules are synthetic
@@ -67,11 +67,14 @@ tendency. Profiles are metadata, not health events.
 
 ## Synthetic-pattern contract
 
-The default window is fixed in configuration rather than calculated as "the
-last seven days" at startup. This prevents a restart from silently generating a
+The default window is fixed at `[2026-10-05T00:00:00Z,
+2026-10-26T00:00:00Z)` rather than calculated from startup time. This prevents
+a restart from silently generating a
 shifted second history. Given the same schema version, seed, window, and user
 count, generation must produce byte-for-byte equivalent ordered events and
 identical IDs.
+All dates and values are synthetic, including any day that is still in the
+future when the demonstration is prepared.
 
 The generator will produce distinguishable patterns:
 
@@ -100,12 +103,12 @@ daily operation groups by UTC. The state comparison groups by state, not day.
 
 1. **Daily resting average for one user**  
    "What was `user-0001`'s average resting heart rate each day from
-   2026-01-05T00:00:00Z to 2026-01-12T00:00:00Z?"  
+   2026-10-05T00:00:00Z to 2026-10-26T00:00:00Z?"
    Operation: `daily_user_average`; required user; fixed metric `heart_rate`;
    fixed state `rest`; grouped by local calendar day.
 
 2. **Comparison across activity states**  
-   "How did `user-0001`'s average heart rate and observation count compare
+   "How did `user-0001`'s time-weighted heart rate compare
    across activity states in that range?"  
    Operation: `activity_state_comparison`; required user; grouped only by the
    four allowlisted activity states.
@@ -117,18 +120,16 @@ daily operation groups by UTC. The state comparison groups by state, not day.
 
 4. **Whole-period user mean, all readings**
    Operation: `user_period_average`; required user; no grouping or activity
-   filter; arithmetic mean over all recorded readings in `[start,end)`.
+   filter; time-weighted mean over valid held intervals in `[start,end)`.
 5. **Whole-period user mean, resting readings**
    Operation: `user_period_resting_average`; required user; fixed `rest` filter;
    no grouping. Explicit resting requests never select the all-state operation.
 
-Both period operations return zero or one row: `mean_recorded_bpm`,
-`observation_count`, `first_observed_at`, and `last_observed_at`. An aggregate
-with no matching readings is suppressed, leaving `rows: []`. Interval metadata
-is the requested interval; min/max describe only contributing readings.
-Average the observations themselves, not daily means: three readings averaging
-60 BPM and one at 70 BPM yield 62.5 BPM, not 65 BPM. These operations reuse the
-existing observations table; no migration or source change is required.
+Both period operations return zero or one row:
+`time_weighted_mean_bpm` and `contributing_duration_seconds`. An aggregate with
+no valid contributing duration is suppressed, leaving `rows: []`; top-level
+quality metadata remains present. These operations reuse the existing
+observations table; no migration or source change is required.
 
 Natural language without daily/state grouping selects a period operation;
 “rest”/“resting” selects the rest-only variant. Explicit dates and the real
@@ -137,16 +138,29 @@ A candidate plan with mismatched grouping or rest scope is rejected rather
 than silently answering another question. Maximum, median, other state-only
 filters, and extra grouping dimensions remain outside this bounded contract.
 
-Results contain explicit grouping dimensions where applicable, rounded
-`mean_recorded_bpm`, observation count, and—where relevant—distinct user
-count. Both daily operations also return `first_observed_at` and
-`last_observed_at` for the observations that contributed to each group. Each
-recorded observation has equal weight in the arithmetic mean; these are not time-weighted or
-equal-user-weighted means. More readings do not prove better time coverage,
-and the first-to-last span does not prove there are no gaps. An empty match
-returns HTTP 200 with `rows: []`, not an invented zero; a missing day is not a
-day observed at zero BPM. No coverage percentage is inferred without a
-defensible denominator.
+Every reading defines a constant-value interval ending at the earliest of the
+next reading for the same user/device/metric, its original timestamp plus
+`MAX_HOLD_SECONDS`, or the request end. The default is 360 seconds through
+`HEALTH_DATA_MAX_HOLD_SECONDS`. The immediately preceding reading can
+contribute after `start` only while that original validity remains. The next
+reading is determined before state filtering. There is no interpolation,
+unlimited extrapolation, or zero fill.
+
+Intervals are clipped to `[start,end)` and split at the relevant group
+boundary: the user's local day, UTC day for population, or originating state.
+Timezone conversion determines local boundaries, so elapsed durations remain
+correct across daylight-saving changes rather than assuming a 24-hour day.
+Rows contain `time_weighted_mean_bpm` and explicit contributing seconds;
+population rows use contributing user-seconds and contributing-user count.
+
+A separate quality object reports missing time even when no row can be
+aggregated. Individual quality uses availability of any reading before a rest
+filter and reports requested, observed and unobserved seconds, gap count and
+largest gap. Population quality derives expected users from `users`, calculates
+gaps independently per user, and reports expected/observed users and
+requested/observed/unobserved user-seconds plus largest individual gap. These
+values measure availability under the hold assumption, not physiological
+coverage. Empty groups remain absent and no zero mean is invented.
 
 ## Query and error boundaries
 
@@ -155,7 +169,7 @@ defensible denominator.
 - All values are bound parameters. Operation and grouping SQL fragments come
   from application-owned allowlists.
 - `start` must precede `end`; both timestamps must be offset-aware; ranges may
-  not exceed 31 days. This does not extend the seven-day dataset or fill
+  not exceed 31 days. This does not extend the 21-day dataset or fill
   dates without observations.
 - A single-user operation requires a syntactically valid, existing `user_id`.
   Population aggregation rejects a user filter.
@@ -180,7 +194,7 @@ latter is resolved by application code at request time as the previous ISO
 week in time zone `UTC`; the model receives the resolved bounds and cannot
 choose them. Other relative expressions, and relative expressions mixed with
 explicit timestamps, are rejected. If the real `last week` range does not
-overlap the fixed historical snapshot, the valid result is empty. The
+overlap the fixed synthetic snapshot, the valid result is empty. The
 application never shifts the range merely to find data. Unsupported metrics,
 aggregations, grouping intent, medical advice, missing users, conflicting date
 expressions, invalid JSON, extra fields, and out-of-bounds plans are rejected.
@@ -195,7 +209,10 @@ It validates these recognized lexical cues before and after planning and
 rejects detected mismatches. This is a bounded contract, not a claim of general
 natural-language understanding.
 
-The period average is calculated directly from all matching observations, not from previously calculated daily averages. Each reading contributes equally, including when days have different observation counts. The two user-period operations return one value for the requested interval; daily operations return a separate value for each contributing day.
+The period average is calculated directly from valid held intervals, not from
+previously calculated daily averages. The two user-period operations return one
+value for the requested interval; daily operations split those intervals and
+return a value for each contributing day.
 
 Core availability means being able to run validated structured queries against PostgreSQL; inference availability means being able to turn a supported English question into a plan within the timeout. Separate checks for these capabilities are proposed, not implemented. Today /health/ready combines completed ingestion, existing observations, and model listing; it does not exercise inference. Once the API is running, /v1/query does not call the model.
 
@@ -227,9 +244,10 @@ batches. Stable event and natural identities make that full replay idempotent:
 
 Idempotence applies to repeated delivery of the same event, not to distinct
 new measurements; it is not a general end-to-end exactly-once guarantee.
-No positional checkpoint is maintained. The measured complete 271,620-line
-replay took 18 seconds, which is acceptable for this local volume and simpler
-than a second recovery mechanism. PostgreSQL records source identity, expected
+No positional checkpoint is maintained. In the recorded isolated run, full
+replay of the current 814,492-line source took 35.34 seconds and inserted zero
+rows; the environment and cache boundary are in
+`october-2026-verification.md`. PostgreSQL records source identity, expected
 unique count, inserted count, and completion status. The demo database accepts
 one source configuration; migration and coexistence are not implemented.
 
@@ -252,7 +270,7 @@ measurements that were never persisted cannot be reconstructed.
 
 - `docker compose up` from empty persisted state builds or pulls every required
   component, prepares the local model, ingests 50 users over the fixed
-  seven-day window, and starts a ready API without hidden host setup.
+  21-day window, and starts a ready API without hidden host setup.
 - A fixed-seed replay produces the same ordered payloads and event IDs.
 - A complete JSONL source is published by same-volume rename and reused on
   later runs; partial publication and incompatible configuration are tested.
@@ -274,8 +292,9 @@ measurements that were never persisted cannot be reconstructed.
 - The interruption procedure resumes to the same count and digest as an
   uninterrupted load by rereading the same persisted file.
 - Fixture tests with hand-calculated values verify all five operations,
-  including averages, counts, first/last contributing timestamps, grouping
-  boundaries, and empty results.
+  including unequal intervals, carry-in validity, state changes, gaps,
+  local/UTC day boundaries, daylight-saving transitions, population
+  user-seconds, out-of-order readings, and empty results.
 - Tests cover invalid timestamps, unsupported metric and operation, excessive
   range, unknown user, and oversized response.
 
@@ -286,8 +305,8 @@ measurements that were never persisted cannot be reconstructed.
 - Natural-language requests invoke the Compose-managed local model, validate
   its structured plan through the same path, and return that interpretation,
   including request-time application-resolved relative-date context.
-- The explicit evaluation manifest contains 26 cases: 24 live natural-language endpoint
-  requests, of which eight supported questions call the real model and 16 are
+- The explicit evaluation manifest contains 32 cases: 30 live natural-language endpoint
+  requests, of which eight supported questions call the real model and 22 are
   rejected before model use, plus two deterministic isolated fault-injection
   cases for invalid model output and model unavailability.
 - Clean-start verification exercises health, one structured query, one
@@ -310,7 +329,7 @@ measurements that were never persisted cannot be reconstructed.
 
 ## Chosen tradeoffs
 
-- **Persisted JSONL and direct batches over a broker:** seven days of demo
+- **Persisted JSONL and direct batches over a broker:** 21 days of demo
   history does not need asynchronous transport. An inspectable source plus
   PostgreSQL transactions provides the demonstrated replay behavior with less
   operational surface. Continuous ingestion and streaming are not implemented;
