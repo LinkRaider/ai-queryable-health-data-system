@@ -129,6 +129,12 @@ device-off tendency. State changes affect values and sampling cadence;
 deterministic jitter avoids clockwork intervals; device-off intervals emit no
 observations.
 
+Fifty users over three weeks provide varied profiles, weekday/weekend patterns
+and repeated activity cycles while keeping local generation, replay and
+analytical checks manageable. Sampling is more frequent during workouts to
+represent faster changes and less frequent during rest, while jitter and
+device-off periods exercise irregular timing and missing-data handling.
+
 Determinism makes the synthetic fixture reproducible for review and tests. It
 does not imply that missing measurements from real people can be regenerated.
 Every value is synthetic, including dates that are in the future when the
