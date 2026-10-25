@@ -20,8 +20,8 @@ TEST_DATABASE_URL = os.getenv(
     "HEALTH_DATA_TEST_DATABASE_URL",
     "postgresql://postgres@127.0.0.1:55432/health_data",
 )
-START = datetime(2026, 1, 5, tzinfo=UTC)
-END = datetime(2026, 1, 7, tzinfo=UTC)
+START = datetime(2026, 10, 5, tzinfo=UTC)
+END = datetime(2026, 10, 7, tzinfo=UTC)
 
 
 class AvailablePlanner:
@@ -30,6 +30,16 @@ class AvailablePlanner:
 
     def plan(self, _question: str):
         raise AssertionError("planner is not used by structured endpoint tests")
+
+
+class RootRedirectTests(unittest.TestCase):
+    def test_root_redirects_to_openapi_documentation(self) -> None:
+        client = TestClient(create_app(TEST_DATABASE_URL))
+
+        response = client.get("/", follow_redirects=False)
+
+        self.assertEqual(307, response.status_code)
+        self.assertEqual("/docs", response.headers["location"])
 
 
 class StructuredQueryApiTests(unittest.TestCase):
@@ -41,7 +51,7 @@ class StructuredQueryApiTests(unittest.TestCase):
         for operation in ("user_period_average", "user_period_resting_average"):
             self.assertIn(operation, enum)
             request = dict(operation=operation, user_id="user-0001",
-                           start="2026-01-05T00:00:00Z", end="2026-01-07T00:00:00Z")
+                           start="2026-10-05T00:00:00Z", end="2026-10-07T00:00:00Z")
             response = client.post("/v1/query", json=request)
             self.assertEqual(200, response.status_code, response.text)
             row = response.json()["rows"][0]
@@ -161,12 +171,12 @@ class StructuredQueryApiTests(unittest.TestCase):
         self.assertEqual(
             [
                 {
-                    "day": "2026-01-05",
+                    "day": "2026-10-05",
                     "time_weighted_mean_bpm": 70.0,
                     "contributing_duration_seconds": 720.0,
                 },
                 {
-                    "day": "2026-01-06",
+                    "day": "2026-10-06",
                     "time_weighted_mean_bpm": 70.0,
                     "contributing_duration_seconds": 360.0,
                 },
@@ -204,7 +214,7 @@ class StructuredQueryApiTests(unittest.TestCase):
 
     def test_invalid_requests_return_structured_422_errors(self) -> None:
         cases = (
-            self.request_payload(start="2026-01-05T00:00:00"),
+            self.request_payload(start="2026-10-05T00:00:00"),
             self.request_payload(start=1767571200),
             self.request_payload(metric="steps"),
             self.request_payload(operation="raw_sql"),

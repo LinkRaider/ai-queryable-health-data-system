@@ -28,8 +28,8 @@ TEST_DATABASE_URL = os.getenv(
     "HEALTH_DATA_TEST_DATABASE_URL",
     "postgresql://postgres@127.0.0.1:55432/health_data",
 )
-START = datetime(2026, 1, 5, tzinfo=UTC)
-END = datetime(2026, 1, 7, tzinfo=UTC)
+START = datetime(2026, 10, 5, tzinfo=UTC)
+END = datetime(2026, 10, 7, tzinfo=UTC)
 
 
 class AnalyticalQueryTests(unittest.TestCase):
@@ -208,12 +208,12 @@ class AnalyticalQueryTests(unittest.TestCase):
         self.assertEqual(
             (
                 {
-                    "day": "2026-01-05",
+                    "day": "2026-10-05",
                     "time_weighted_mean_bpm": 60.0,
                     "contributing_duration_seconds": 1080.0,
                 },
                 {
-                    "day": "2026-01-06",
+                    "day": "2026-10-06",
                     "time_weighted_mean_bpm": 70.0,
                     "contributing_duration_seconds": 360.0,
                 },
@@ -264,13 +264,13 @@ class AnalyticalQueryTests(unittest.TestCase):
         self.assertEqual(
             (
                 {
-                    "day": "2026-01-05",
+                    "day": "2026-10-05",
                     "time_weighted_mean_bpm": 61.7,
                     "contributing_user_seconds": 2160.0,
                     "contributing_user_count": 2,
                 },
                 {
-                    "day": "2026-01-06",
+                    "day": "2026-10-06",
                     "time_weighted_mean_bpm": 113.3,
                     "contributing_user_seconds": 1080.0,
                     "contributing_user_count": 2,
@@ -312,7 +312,7 @@ class AnalyticalQueryTests(unittest.TestCase):
         self.assertEqual(
             (
                 {
-                    "day": "2026-01-05",
+                    "day": "2026-10-05",
                     "time_weighted_mean_bpm": 40.0,
                     "contributing_duration_seconds": 360.0,
                 },
@@ -356,8 +356,8 @@ class AnalyticalQueryTests(unittest.TestCase):
             )
             """,
             [
-                (uuid.UUID(int=1001), START + timedelta(hours=7, minutes=30), 50.0),
-                (uuid.UUID(int=1002), START + timedelta(hours=8, minutes=30), 70.0),
+                (uuid.UUID(int=1001), START + timedelta(hours=6, minutes=30), 50.0),
+                (uuid.UUID(int=1002), START + timedelta(hours=7, minutes=30), 70.0),
             ],
         )
         self.connection.commit()
@@ -375,12 +375,12 @@ class AnalyticalQueryTests(unittest.TestCase):
         self.assertEqual(
             (
                 {
-                    "day": "2026-01-04",
+                    "day": "2026-10-04",
                     "time_weighted_mean_bpm": 50.0,
                     "contributing_duration_seconds": 360.0,
                 },
                 {
-                    "day": "2026-01-05",
+                    "day": "2026-10-05",
                     "time_weighted_mean_bpm": 70.0,
                     "contributing_duration_seconds": 360.0,
                 },

@@ -295,15 +295,15 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
     def test_fractional_seconds_are_accepted_in_explicit_range(self) -> None:
         question = (
             "What was user-0001's average resting heart rate each day from "
-            "2026-01-05T00:00:00.500Z to 2026-01-06T00:00:00.500Z?"
+            "2026-10-05T00:00:00.500Z to 2026-10-06T00:00:00.500Z?"
         )
         planner = FixedPlanner(
             output={
                 "operation": "daily_user_average",
                 "user_id": "user-0001",
                 "metric": "heart_rate",
-                "start": "2026-01-05T00:00:00.500Z",
-                "end": "2026-01-06T00:00:00.500Z",
+                "start": "2026-10-05T00:00:00.500Z",
+                "end": "2026-10-06T00:00:00.500Z",
             }
         )
         response = TestClient(
@@ -316,7 +316,7 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
         self.assertEqual(200, response.status_code, response.text)
         self.assertEqual(1, planner.call_count)
         self.assertEqual(
-            "2026-01-05T00:00:00.500000Z",
+            "2026-10-05T00:00:00.500000Z",
             response.json()["temporal_interpretation"]["start"],
         )
 
@@ -329,7 +329,7 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
             json={
                 "question": (
                     "What was user-0001's average resting heart rate each day today "
-                    "from 2026-01-05T00:00:00Z to 2026-01-06T00:00:00Z?"
+                    "from 2026-10-05T00:00:00Z to 2026-10-06T00:00:00Z?"
                 )
             },
         )
@@ -342,8 +342,8 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
         invalid_starts = (
             "2026-02-30T00:00:00Z",
             "2026-13-01T00:00:00Z",
-            "2026-01-05T25:00:00Z",
-            "2026-01-05T00:00:00+25:00",
+            "2026-10-05T25:00:00Z",
+            "2026-10-05T00:00:00+25:00",
         )
         for invalid_start in invalid_starts:
             with self.subTest(start=invalid_start):
@@ -372,8 +372,8 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
                 "operation": "daily_user_average",
                 "user_id": "user-0001",
                 "metric": "heart_rate",
-                "start": "2026-01-05T00:00:00Z",
-                "end": "2026-01-07T00:00:00Z",
+                "start": "2026-10-05T00:00:00Z",
+                "end": "2026-10-07T00:00:00Z",
             }
         )
         response = TestClient(
@@ -383,7 +383,7 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
             json={
                 "question": (
                     "What was user-0001-extra's average resting heart rate each "
-                    "day from 2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+                    "day from 2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
                 )
             },
         )
@@ -395,15 +395,15 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
     def test_daily_average_requires_explicit_daily_grouping(self) -> None:
         question = (
             "What was user-0001's average resting heart rate from "
-            "2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"
+            "2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"
         )
         planner = FixedPlanner(
             output={
                 "operation": "daily_user_average",
                 "user_id": "user-0001",
                 "metric": "heart_rate",
-                "start": "2026-01-05T00:00:00Z",
-                "end": "2026-01-07T00:00:00Z",
+                "start": "2026-10-05T00:00:00Z",
+                "end": "2026-10-07T00:00:00Z",
             }
         )
         response = TestClient(
@@ -425,10 +425,10 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
             ("resting ", "activity_state_comparison"),
         ):
             question = (f"What was user-0001's average {requested}heart rate from "
-                        "2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?")
+                        "2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?")
             planner = FixedPlanner(output=dict(
                 operation=planned, user_id="user-0001", metric="heart_rate",
-                start="2026-01-05T00:00:00Z", end="2026-01-07T00:00:00Z",
+                start="2026-10-05T00:00:00Z", end="2026-10-07T00:00:00Z",
             ))
             response = TestClient(create_app(TEST_DATABASE_URL, planner=planner)).post(
                 "/v1/query/natural-language", json={"question": question},
@@ -437,12 +437,12 @@ class NaturalLanguageEvaluationTests(unittest.TestCase):
             self.assertEqual(1, planner.call_count)
         planner = FixedPlanner(output=dict(
             operation="user_period_resting_average", user_id="user-0001", metric="heart_rate",
-            start="2026-01-05T00:00:00Z", end="2026-01-07T00:00:00Z",
+            start="2026-10-05T00:00:00Z", end="2026-10-07T00:00:00Z",
         ))
         response = TestClient(create_app(TEST_DATABASE_URL, planner=planner)).post(
             "/v1/query/natural-language", json={"question":
                 "What was user-0001's average resting heart rate each day from "
-                "2026-01-05T00:00:00Z to 2026-01-07T00:00:00Z?"},
+                "2026-10-05T00:00:00Z to 2026-10-07T00:00:00Z?"},
         )
         self.assertEqual(422, response.status_code)
 

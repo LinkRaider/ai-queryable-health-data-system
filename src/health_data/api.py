@@ -10,7 +10,7 @@ from typing import Annotated, Any, Literal
 import psycopg
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from psycopg import Connection
 
@@ -277,6 +277,10 @@ def create_app(
             "database_unavailable",
             "the analytical database is unavailable",
         )
+
+    @app.get("/", include_in_schema=False)
+    def documentation_redirect() -> RedirectResponse:
+        return RedirectResponse(url="/docs")
 
     @app.get("/health/live", tags=["health"])
     def liveness() -> dict[str, str]:

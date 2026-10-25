@@ -30,7 +30,9 @@ No model command, schema command, or data-loading command is required.
 Compose starts PostgreSQL and Ollama, downloads `qwen2.5:1.5b` through a
 one-shot model preparation service, publishes and ingests the fixed dataset,
 then starts FastAPI at <http://127.0.0.1:8000>. OpenAPI documentation is at
-<http://127.0.0.1:8000/docs>.
+<http://127.0.0.1:8000/docs>, and the root URL redirects there.
+`/health/live` reports process liveness; `/health/ready` confirms database,
+ingestion, and model readiness.
 
 The first start is download-heavy. Wait for `api` to report healthy:
 
@@ -159,7 +161,7 @@ with an uninterrupted load:
 The recorded run demonstrates recovery with earlier batches already committed.
 Polling does not establish whether another transaction was open at the signal
 instant. Counts, digests, and timings remain in
-[`docs/interruption-verification.md`](docs/interruption-verification.md).
+[`docs/october-2026-verification.md`](docs/october-2026-verification.md#replay-restart-and-interruption).
 
 The named volume survives normal container replacement; it is not a backup,
 replica, or protection against deleting or losing the volume. Real
@@ -387,12 +389,10 @@ python3 -m venv .venv
 docker rm --force health-data-test-postgres
 ```
 
-The historical January ARM64 run passed 65 tests in 17.299 seconds. They include JSONL
-round-tripping and atomic publication, source reuse and incompatibility,
-duplicate/conflicting/out-of-order ingestion, post-commit retry, and
-hand-calculated answers for the original three operations including contributing
-timestamp bounds. The period-average extension has separate historical evidence in
-[docs/period-average-verification.md](docs/period-average-verification.md).
+Coverage includes JSONL round-tripping and atomic publication, source reuse
+and incompatibility, duplicate/conflicting/out-of-order ingestion,
+post-commit retry, all five query operations, hand-calculated time-weighted
+answers and gap reporting.
 The empty- and preserved-state Compose flow is reproducible
 with:
 
@@ -408,24 +408,7 @@ unchanged.
 The English [interview defense](docs/interview-defense.md) and
 [code explanation](docs/code-explanation.md) describe the same current behavior.
 
-## Historical measured verification
-
-The January 2026 ARM64 empty-persisted-state run completed in 67 seconds on ARM64 with
-cached image layers but empty PostgreSQL, source, and Ollama volumes. It
-downloaded the model, published and stored 271,620 observations, returned
-checked structured and natural-language responses, and rejected an ambiguous
-question with HTTP 422. A full 271,620-line replay took 18 seconds and inserted
-zero rows. A subsequent `docker compose down`/`up` with all volumes preserved
-was healthy in 23 seconds and retained 271,620 rows. The updated live endpoint
-evaluation passed 20/20.
-
-The exact responses, environment, corrected failures, test evidence, and
-measurement boundary are in
-[`docs/verification.md`](docs/verification.md). In particular, 67 seconds is
-not claimed as a no-cache fresh-VM time, and these values are not measurements
-of the current October 2026 default.
-
-## Historical October 2026 window verification
+## October 2026 window verification
 
 Before the time-weighted query change, an isolated Apple ARM64 run generated and ingested
 814,492 observations over `[2026-10-05T00:00:00Z,
@@ -442,7 +425,7 @@ Commands, timings, request/model boundaries, and observed values are in
 
 ## Current time-weighted verification
 
-The isolated PostgreSQL 16.6 suite passed 79 tests, including hand-calculated
+The current working-tree PostgreSQL 16.6 suite passed 80 tests, including hand-calculated
 interval, carry-in, state-boundary, gap, local/UTC midnight, DST and population
 user-second cases. A fresh isolated Compose project ingested the unchanged
 814,492-event October source and returned all five weighted operations.
@@ -484,8 +467,8 @@ Observed values, quality summaries, commands and cache boundaries are in
 
 Initial scaffolding, implementation drafts, test cases, Compose wiring, and
 documentation structure were delegated. Runtime and test claims in this README
-are limited to the historical records in `docs/verification.md` and
-`docs/period-average-verification.md`, plus any separately identified current
+are limited to the measured records in `docs/october-2026-verification.md` and
+`docs/time-weighted-verification.md`, plus any separately identified current
 verification below. Corrections
 included a Python-version dependency mismatch, a packaged schema path, Compose
 image ownership, API dependency resolution, and two rejected local-model
@@ -518,9 +501,8 @@ domain-owner review and environment-specific evidence.
 
 ## Limitations
 
-- The historical ARM64 record covers empty named volumes. The historical
-  period extension record used AMD64 with a documented environment-only
-  Compose adaptation; neither record establishes no-cache fresh-VM deployment.
+- The ARM64 Compose records reused some image layers and do not establish
+  no-cache fresh-VM deployment.
 - There is no authentication, authorization, TLS termination, rate limiting,
   per-user tenancy boundary, or audit log.
 - There is no connection pool, horizontal API deployment, partition lifecycle,

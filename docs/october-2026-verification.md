@@ -1,9 +1,7 @@
 # October 2026 default-window verification
 
 This record validates the uncommitted default-window revision based on commit
-`34382e499d8cf1a2dae2e5edf0f18887ff392519`. It does not replace the historical
-January records in `verification.md`, `interruption-verification.md`, or
-`period-average-verification.md`.
+`34382e499d8cf1a2dae2e5edf0f18887ff392519`.
 The run predates the time-weighted query contract. Its source, ingestion,
 replay and window measurements remain applicable to that revision; its API
 results and 69-test count are not current weighted-query verification.
@@ -30,9 +28,9 @@ HEALTH_DATA_TEST_DATABASE_URL='postgresql://postgres@127.0.0.1:55450/health_data
   .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Result: **69 tests passed in 34.089 seconds**. The fixed January fixtures in
-the query and parser tests remain independent fixtures; default-dependent
-tests use the October window.
+Result: **69 tests passed in 34.089 seconds**. The fixed query and parser
+fixtures were independent of the default window; default-dependent tests used
+the October window.
 
 ## Empty-volume Compose start and source bounds
 
