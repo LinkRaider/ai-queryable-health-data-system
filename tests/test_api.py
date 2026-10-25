@@ -215,7 +215,7 @@ class StructuredQueryApiTests(unittest.TestCase):
     def test_invalid_requests_return_structured_422_errors(self) -> None:
         cases = (
             self.request_payload(start="2026-10-05T00:00:00"),
-            self.request_payload(start=1767571200),
+            self.request_payload(start=1791158400),
             self.request_payload(metric="steps"),
             self.request_payload(operation="raw_sql"),
             self.request_payload(sql="SELECT * FROM heart_rate_observations"),
