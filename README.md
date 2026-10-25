@@ -490,41 +490,41 @@ Observed values, quality summaries, commands and cache boundaries are in
 - The 1.5B local model keeps inference local and avoids paid API keys.
   Application validation checks its candidate plan before database execution.
 
-## Development process and review boundaries
+## AI usage
 
-Initial scaffolding, implementation drafts, test cases, Compose wiring, and
-documentation structure were delegated. Runtime and test claims in this README
-are limited to the measured records in `docs/october-2026-verification.md` and
-`docs/time-weighted-verification.md`, plus any separately identified current
-verification below. Corrections
-included a Python-version dependency mismatch, a packaged schema path, Compose
-image ownership, API dependency resolution, and two rejected local-model
-plans.
+### What did I delegate to AI?
 
-During review, I challenged recovery based on regenerating synthetic
-measurements and the checkpoint complexity supporting that path: real
-measurements cannot be reconstructed if they were never retained, and the
-brief did not require that mechanism. I chose a persisted JSONL source and
-full idempotent replay, keeping transactional batch ingestion and PostgreSQL
-without adding permanent services; implementation of that revision was
-delegated. I would not delegate blindly the definition of the problem, the
-failure model, or acceptance of recovery guarantees: those require human
-judgment about what can actually be recovered and what the evidence proves.
-Deterministic generation remains a reproducibility aid for tests, not a
-recovery mechanism for real-world measurements.
+I used AI extensively to write and review code, tests, Docker Compose
+configuration and documentation, and to explore architectural alternatives. I
+also used it to look for bugs and help validate ingestion, queries and
+integration with the local model.
 
-I also challenged rejecting a reasonable whole-period user average. The
-implemented extension answers it with explicit all-reading and rest-only
-operations, preserves existing daily-rest semantics, and tests unequal daily
-counts so an average of daily means cannot silently replace the requested
-whole-period operation. Implementation was delegated; defining the meaning and
-checking counterexamples remained review decisions.
+### Where did I intervene or make corrections?
 
-Review checkpoints covered scope, synthetic-pattern plausibility, query and
-error boundaries, recovery evidence, and final claims. This repository records
-runtime evidence, not reviewer identities or approvals. Clinical validity,
-production security, privacy policy, and operational readiness still require
-domain-owner review and environment-specific evidence.
+I questioned architectural decisions, the definitions of activity states
+(such as sleep versus rest), and how averages were calculated. I asked for a
+time-weighted average instead of a simple average of readings because sampling
+frequency varies between states.
+
+I asked for generated data to be saved to a file before loading it into the
+database. If ingestion fails, we can then read the same data again without
+duplicating records already inserted, rather than relying on generating it
+again.
+
+Implementation of these revisions was still delegated to AI. My role was to
+define the intended behavior and ask for evidence before accepting the result.
+
+### What would I not trust AI with, and why?
+
+I would not trust AI to make the final decisions about metric semantics,
+assess clinical realism, define security boundaries, or decide whether the
+system meets the requirements. A query can be syntactically correct and still
+calculate the wrong thing; plausible data is not clinically validated data;
+and AI-generated tests can repeat the same mistaken assumptions as the code.
+Natural-language interpretation must be treated as untrusted input, with
+validation and restrictions enforced by the application. Documented
+guarantees must be based on observed execution and verifiable results, not on
+how confident the AI sounds.
 
 ## Limitations
 
