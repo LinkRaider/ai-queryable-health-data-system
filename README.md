@@ -526,34 +526,6 @@ validation and restrictions enforced by the application. Documented
 guarantees must be based on observed execution and verifiable results, not on
 how confident the AI sounds.
 
-## Limitations
-
-- The ARM64 Compose records reused some image layers and do not establish
-  no-cache fresh-VM deployment.
-- There is no authentication, authorization, TLS termination, rate limiting,
-  per-user tenancy boundary, or audit log.
-- There is no connection pool, horizontal API deployment, partition lifecycle,
-  backup/restore automation, or production monitoring.
-- The synthetic generator models recognizable schedules and gaps, not
-  physiology.
-- The data is a fixed synthetic snapshot. Normal restarts replay the same
-  source and do not append current observations.
-- The source named volume survives container restarts but is neither backed up
-  nor replicated. Deleting it removes the persisted event source.
-- Time weighting assumes that a reading remains valid for at most 360 seconds
-  by default. This is configurable and explicit, but it is not clinical
-  evidence that the value stayed constant.
-- Population means pool observed user-seconds; users with more valid observed
-  time contribute more. Equal-user weighting is not claimed.
-- Gap metadata measures availability under the maximum-hold rule, not device
-  uptime, physiological coverage, or proof that no unobserved change occurred.
-  Missing groups are omitted, never represented as zero BPM.
-- The API supports five intentionally narrow operations and one metric.
-- Image tags and Python direct dependencies are pinned, but image digests and
-  the complete transitive Python dependency graph are not locked.
-- The live model can still emit an invalid plan; that path is rejected and
-  returned as an error.
-
 ## If you had two more weeks, what would you build next?
 
-These are proposed priorities, not implemented features: first I would review the threat model and secure access before public exposure with authentication to establish identity, per-person authorization, TLS, rate limiting, and access auditing, while improving model reliability through latency measurements, warm-up, diagnostics, and separate core and inference readiness checks. Next I would add a bounded connection pool to reuse database connections across requests, increase the number of synthetic users, extend the time horizon, and vary seeds in isolated databases, measuring ingestion throughput, replay cost, query latency, and storage capacity before choosing focused improvements. PostgreSQL remains sufficient for the current batch; I would consider time-based partitioning and retention only when measured pruning or lifecycle needs justify them, Parquet for large analytical scans or archival, and a lakehouse only for a real shared data-lake or multiple-engine requirement. Only if the target changes to continuous arrivals would I add an ongoing producer and streaming path, considering Kafka for retained replay, buffering and backpressure, and independent consumers, with retention sized to recovery needs and storage budget and idempotent database writes before offset commits; it is not needed for this batch demo. Within two weeks I would keep acceptance work focused on readiness and adversarial/recovery checks, a cache-free cross-platform CI run, and a backup/restore rehearsal rather than promise every production concern.
+I would first add authentication, per-person authorization, TLS, rate limiting and access auditing before exposing the service publicly. I would improve model reliability with warm-up, diagnostics and separate checks for structured-query readiness and inference readiness. Next, I would test larger datasets and concurrent requests, adding a bounded connection pool only if measurements justify it. I would also automate a clean-start deployment check and rehearse backup and restore. Partitioning, archival formats or streaming would depend on demonstrated scale, retention needs or a change to continuous data arrival.
