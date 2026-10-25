@@ -50,30 +50,6 @@ Remove all persisted demo data and the downloaded model:
 docker compose down --volumes
 ```
 
-## HTTP endpoints
-
-The application exposes:
-
-- `GET /` — return a 307 redirect to `/docs`.
-- `GET /docs` — open the interactive Swagger UI.
-- `GET /docs/oauth2-redirect` — handle the Swagger UI OAuth2 callback; this
-  route is generated automatically even though this demo does not implement
-  authentication.
-- `GET /redoc` — open the alternative ReDoc API documentation.
-- `GET /openapi.json` — return the OpenAPI schema.
-- `GET /health/live` — report application-process liveness.
-- `GET /health/ready` — check database connectivity, completed ingestion,
-  observations present, and model availability. It lists the model but does
-  not run inference.
-- `POST /v1/query` — execute bounded structured analytics; see the
-  [structured query examples](#analytical-api).
-- `POST /v1/query/natural-language` — translate supported English questions
-  into validated query plans; see the
-  [natural-language example](#constrained-natural-language-layer).
-
-The automatically generated documentation and schema routes also accept
-`HEAD`.
-
 ## Architecture
 
 ```mermaid
@@ -195,39 +171,17 @@ replica, or protection against deleting or losing the volume. Real
 measurements that were never persisted cannot be reconstructed by a
 deterministic generator.
 
-## Analytical API
+<a id="analytical-api"></a>
+
+## Query semantics
 
 This is the second area of deliberate depth: explicit semantics when sampling
 is irregular and data can be absent.
 
 Every range is half-open: `start <= observed_at < end`. Timestamps require an
-offset and ranges are limited to 31 days. This is a request guardrail, not
-the dataset horizon: the 21-day sample is never filled with invented
-readings when a query spans more dates. Responses allow row_limit from 1 to
-1,000 (default 1,000).
-An empty match returns HTTP 200 with an empty `rows` array. Oversized results
-return HTTP 413 rather than silent truncation. Unsupported operations, metrics,
-dimensions, users, and malformed timestamps return structured errors. Error
-responses should explain the failure without leaking database credentials or
-internal implementation details.
-
-Five operations exist. Every reported `time_weighted_mean_bpm` uses a
-bounded constant-hold approximation. A reading represents its value from its
-timestamp until the earliest of the next reading for the same
-user/device/metric, `MAX_HOLD_SECONDS`, or the request end. The default and
-Compose setting is `HEALTH_DATA_MAX_HOLD_SECONDS=360`. This is an explicit
-engineering assumption about how long a reading remains usable, not a clinical
-rule. There is no linear interpolation, unlimited extrapolation, or zero fill.
-Responses identify this as
-`aggregation_basis: "time_weighted_observation_hold"` and expose the applied
-`max_hold_seconds`.
-
-The next reading is found before any activity-state filter is applied, so a
-rest interval stops when a later workout reading arrives. The immediately
-preceding reading can carry into the request only for the validity it still has
-left from its original timestamp. Intervals are clipped to `[start,end)` and
-split at local-day or UTC-day boundaries using real instants, including
-daylight-saving transitions.
+offset, and ranges are limited to 31 days as a request guardrail; the 21-day
+sample is never padded with invented readings. Five operations use the same
+query engine:
 
 - `user_period_average`: one time-weighted mean of all valid intervals for one
   user over the whole request;
@@ -240,29 +194,73 @@ daylight-saving transitions.
 - `population_daily_average`: a UTC-day mean pooled over valid user-seconds,
   not an average of per-user means.
 
-The limit counts aggregated output rows, not raw measurements. For example, four activity-state groups with row_limit=2 return HTTP 413, with no partial result. The default and maximum row_limit is 1,000; the current four-state or daily operations over at most 31 days cannot normally reach that ceiling.
+Every `time_weighted_mean_bpm` uses a bounded constant hold. A reading
+represents its value until the earliest of the next reading for the same
+user/device/metric, `MAX_HOLD_SECONDS`, or the request end. The default
+`HEALTH_DATA_MAX_HOLD_SECONDS=360` is an engineering assumption, not a
+clinical rule. There is no linear interpolation, unlimited extrapolation, or
+zero fill. Results expose
+`aggregation_basis: "time_weighted_observation_hold"` and
+`max_hold_seconds`.
 
-Each result row includes the duration that actually contributed:
-`contributing_duration_seconds` for individual operations or
-`contributing_user_seconds` plus `contributing_user_count` for population
-days. A separate top-level `quality` object remains present even when `rows`
-is empty. Individual quality reports requested, observed and unobserved
-seconds, gap count and largest gap using availability of any heart-rate
-reading before a rest filter. Workout time excluded from a resting mean is
-therefore not mislabeled as missing device data.
+The next reading is found before activity-state filtering, so a rest interval
+stops when a later workout reading arrives. A reading before `start` can carry
+in only for its remaining validity. Intervals are clipped to `[start,end)` and
+split at local-day or UTC-day boundaries using real instants, including
+daylight-saving transitions.
 
-Population quality calculates gaps independently per expected user from the
-`users` table. It reports requested, observed and unobserved user-seconds,
-expected and observed user counts, total gap count, and the largest individual
-gap. One person's reading never covers another person's time. These are
-availability indicators under the maximum-hold rule, not physiological
-coverage. Missing groups stay absent: the API never invents a zero mean, and a
-fully missing request still returns quality metadata with `rows: []`.
+Rows expose `contributing_duration_seconds`, or
+`contributing_user_seconds` and `contributing_user_count` for population days.
+The separate `quality` object is returned even with `rows: []`. Individual
+quality reports requested, observed and unobserved seconds, gap count and
+largest gap based on any heart-rate reading before a rest filter, so excluded
+workout time is not mislabeled as missing data.
 
-SQL operation and grouping fragments are application-owned constants. Every
-request value is a bound parameter. No route accepts arbitrary SQL.
+Population quality computes gaps independently for every expected user in the
+`users` table and reports user-seconds, expected and observed users, total gap
+count, and the largest individual gap. One person's reading never covers
+another person's time. These indicators describe availability under the hold
+rule, not physiological coverage. Missing groups remain absent; no operation
+invents a zero mean.
 
-Whole-period average (all states):
+## Bonus 1: HTTP query endpoint
+
+`POST /v1/query` exposes the bounded structured query engine over HTTP.
+Requests select an allowlisted operation, interval, metric, conditional
+`user_id`, and optional `row_limit`. Responses include the applied operation,
+interval, aggregation basis, hold setting, quality metadata, and result rows.
+
+### HTTP endpoints
+
+The application exposes:
+
+- `GET /` — return a 307 redirect to `/docs`;
+- `GET /docs` — open the interactive Swagger UI;
+- `GET /docs/oauth2-redirect` — handle the automatically generated Swagger UI
+  OAuth2 callback, although this demo does not implement authentication;
+- `GET /redoc` — open the alternative ReDoc documentation;
+- `GET /openapi.json` — return the OpenAPI schema;
+- `GET /health/live` — report application-process liveness;
+- `GET /health/ready` — check database connectivity, completed ingestion,
+  observations present, and model availability without running inference;
+- `POST /v1/query` — execute bounded structured analytics;
+- `POST /v1/query/natural-language` — translate
+  [supported English questions](#bonus-2-natural-language-queries) into
+  validated plans.
+
+The generated documentation and schema routes also accept `HEAD`.
+
+### Structured query examples
+
+Ranges over 31 days, malformed timestamps, unknown users, unsupported
+operations, metrics, or dimensions return structured HTTP 422 errors. Empty
+matches return HTTP 200 with `rows: []`. `row_limit` is 1–1,000 and counts
+aggregated rows, not observations; an oversized result returns HTTP 413
+without partial rows. Database failures return HTTP 503 without exposing
+credentials. SQL fragments are application-owned constants, request values are
+bound parameters, and no route accepts arbitrary SQL.
+
+Whole-period average of all states:
 
 ```bash
 curl --fail --request POST http://127.0.0.1:8000/v1/query \
@@ -275,12 +273,6 @@ zero or one row with `time_weighted_mean_bpm` and
 `contributing_duration_seconds`; `start` and `end` describe the requested
 interval. The mean is calculated directly from held value-seconds, not from
 daily means. No schema migration is needed.
-
-Natural-language examples: “What was user-0001's average heart rate last week?”
-and “What was user-0001's average resting heart rate last week?” select the
-all-state and rest-only period operations respectively. Add “each day” to the
-resting question to request `daily_user_average`, whose semantics are unchanged.
-Unsupported hourly/device grouping, maximum, and median remain rejected.
 
 Daily resting average:
 
@@ -323,10 +315,12 @@ curl --fail --request POST http://127.0.0.1:8000/v1/query \
   }'
 ```
 
-## Constrained natural-language layer
+<a id="constrained-natural-language-layer"></a>
 
-This is Bonus 2, implemented as a constrained interface over the same validated
-structured-query path rather than a third claimed depth area.
+## Bonus 2: Natural-language queries
+
+This bonus is a constrained interface over the same validated structured-query
+path, not a third area of deliberate depth.
 
 The small local model avoids paid API keys and keeps inference local. Its
 JSON output is validated before the query engine is called.
@@ -376,28 +370,24 @@ snapshot; otherwise it returns `rows: []`. The response exposes the resolved
 bounds, request reference time, and time zone; it never shifts `last week`
 back to the data window merely to produce rows.
 
-Run the evaluation manifest:
-
-```bash
-python3 scripts/evaluate_natural_language.py
-```
-
-The manifest contains 32 cases. Its live run sends 30 natural-language requests: eight
-supported questions reach the real Ollama model, while 22 ambiguous, invalid,
-or unsupported questions are rejected by application validation before a
-model call. The remaining two cases—invalid model output and model
-unavailability—are deterministic fault-injection tests and are not live
-Ollama calls. Further isolated checks cover fractional seconds, conflicting
-date expressions, malformed JSON, and invented users and dates.
-
-Core availability means being able to run validated structured queries against PostgreSQL; inference availability means being able to turn a supported English question into a plan within the timeout. Separate checks for these capabilities are proposed, not implemented. Today /health/ready combines completed ingestion, existing observations, and model listing; it does not exercise inference. Once the API is running, /v1/query does not call the model.
+“What was user-0001's average heart rate last week?” selects
+`user_period_average`; adding “resting” selects
+`user_period_resting_average`, and adding “each day” to the resting question
+selects `daily_user_average`. Unsupported hourly/device grouping, maximum, and
+median remain rejected.
 
 The model client has a 30-second timeout. The first inference after startup can
 exceed it and return HTTP 503; a later request with the model loaded can
 succeed. This is a startup limitation, not a result attributed exclusively to
-one host or execution environment.
+one environment. `/health/ready` checks model availability by listing the
+model; it does not run inference. Once the API is running, `/v1/query` does not
+call the model.
 
-## Tests
+<a id="tests"></a>
+<a id="october-2026-window-verification"></a>
+<a id="current-time-weighted-verification"></a>
+
+## Tests and verification
 
 The tests use Python 3.11 or newer and a disposable PostgreSQL instance:
 
@@ -419,59 +409,47 @@ docker rm --force health-data-test-postgres
 Coverage includes JSONL round-tripping and atomic publication, source reuse
 and incompatibility, duplicate/conflicting/out-of-order ingestion,
 post-commit retry, all five query operations, hand-calculated time-weighted
-answers and gap reporting.
-The empty- and preserved-state Compose flow is reproducible
-with:
+answers, gap reporting, time-zone boundaries, and daylight-saving changes.
+
+The empty- and preserved-state Compose flow is reproducible with:
 
 ```bash
 ./scripts/clean_start_e2e.sh
 ```
 
-That destructive test removes this Compose project's named volumes, starts the
-complete system, checks both endpoints and a rejection, measures a full replay,
-then restarts Compose with its volumes preserved and confirms the row count is
-unchanged.
+This destructive script removes the selected Compose project's test volumes,
+starts the complete system, checks structured and natural-language endpoints,
+measures replay, then restarts with volumes preserved and confirms the row
+count. Use an isolated project; it must not target data that needs to be kept.
 
-The English [interview defense](docs/interview-defense.md) and
-[code explanation](docs/code-explanation.md) describe the same current behavior.
+Run the natural-language evaluation against the live Compose API:
 
-## October 2026 window verification
+```bash
+python3 scripts/evaluate_natural_language.py
+```
 
-Before the time-weighted query change, an isolated Apple ARM64 run generated and ingested
-814,492 observations over `[2026-10-05T00:00:00Z,
-2026-10-26T00:00:00Z)`, with no observations outside that interval. The 69-test
-suite passed against PostgreSQL 16.6. Structured full-range and daily queries
-passed; the real-Ollama manifest passed 24/24 live requests, including
-`last week` resolving at execution time to 12–19 October and matching the
-equivalent structured results. Full replay reused the JSONL and inserted zero
-rows, a preserved-volume restart reused the source, and the SIGKILL recovery
-finished with the same count and database digest as an uninterrupted load.
-Startup used cached image layers, so it is not a fresh-machine measurement.
-Commands, timings, request/model boundaries, and observed values are in
-[`docs/october-2026-verification.md`](docs/october-2026-verification.md).
-
-## Current time-weighted verification
-
-The current working-tree PostgreSQL 16.6 suite passed 80 tests, including hand-calculated
-interval, carry-in, state-boundary, gap, local/UTC midnight, DST and population
-user-second cases. A fresh isolated Compose project ingested the unchanged
-814,492-event October source and returned all five weighted operations.
-The real-Ollama evaluation passed 30/30 live requests: eight reached the model,
-22 were rejected before it, and every supported result matched its structured
-equivalent in full. The first supported inference took 15.852 seconds and the
-loaded-model repetition 5.755 seconds without changing the 30-second timeout.
-Observed values, quality summaries, commands and cache boundaries are in
+A later disposable PostgreSQL 16.6 run passed 80 tests. The detailed
+time-weighted record covers the underlying 79-test revision and an isolated
+Compose run over the 814,492-event source. Its natural-language evaluation
+passed 30 live requests: eight reached the real model and matched structured
+results, while 22 were rejected before model use. Two additional
+model-unavailable and invalid-output cases were simulated fault tests, not live
+model calls. See
 [`docs/time-weighted-verification.md`](docs/time-weighted-verification.md).
+
+The earlier October-window run predates time weighting and remains historical
+evidence; its measurements were not repeated for this README revision. See
+[`docs/october-2026-verification.md`](docs/october-2026-verification.md).
+The [interview defense](docs/interview-defense.md) and
+[code explanation](docs/code-explanation.md) describe the current behavior.
 
 ## Decisions and tradeoffs
 
 - A fixed window makes restart behavior reproducible; it does not look
   perpetually current.
 - Full JSONL replay instead of a broker or positional checkpoint keeps recovery
-  inspectable. The current isolated run measured a 35.34-second replay for
-  814,492 source lines and zero inserts, which is acceptable for this demo;
-  materially larger sources require new measurements before keeping this
-  choice.
+  inspectable and is acceptable at this demo's measured scale; materially
+  larger sources require new measurements before keeping this choice.
 - One constrained heart-rate table provides stronger checks and clearer
   indexes than a generic entity-attribute-value schema; adding another metric
   requires a deliberate migration.
