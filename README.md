@@ -29,10 +29,7 @@ docker compose up --build
 No model command, schema command, or data-loading command is required.
 Compose starts PostgreSQL and Ollama, downloads `qwen2.5:1.5b` through a
 one-shot model preparation service, publishes and ingests the fixed dataset,
-then starts FastAPI at <http://127.0.0.1:8000>. OpenAPI documentation is at
-<http://127.0.0.1:8000/docs>, and the root URL redirects there.
-`/health/live` reports process liveness; `/health/ready` confirms database,
-ingestion, and model readiness.
+then starts FastAPI. The default base URL is <http://127.0.0.1:8000>.
 
 The first start is download-heavy. Wait for `api` to report healthy:
 
@@ -52,6 +49,30 @@ Remove all persisted demo data and the downloaded model:
 ```bash
 docker compose down --volumes
 ```
+
+## HTTP endpoints
+
+The application exposes:
+
+- `GET /` — return a 307 redirect to `/docs`.
+- `GET /docs` — open the interactive Swagger UI.
+- `GET /docs/oauth2-redirect` — handle the Swagger UI OAuth2 callback; this
+  route is generated automatically even though this demo does not implement
+  authentication.
+- `GET /redoc` — open the alternative ReDoc API documentation.
+- `GET /openapi.json` — return the OpenAPI schema.
+- `GET /health/live` — report application-process liveness.
+- `GET /health/ready` — check database connectivity, completed ingestion,
+  observations present, and model availability. It lists the model but does
+  not run inference.
+- `POST /v1/query` — execute bounded structured analytics; see the
+  [structured query examples](#analytical-api).
+- `POST /v1/query/natural-language` — translate supported English questions
+  into validated query plans; see the
+  [natural-language example](#constrained-natural-language-layer).
+
+The automatically generated documentation and schema routes also accept
+`HEAD`.
 
 ## Architecture
 
